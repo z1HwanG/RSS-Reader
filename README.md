@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.2.1`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.3.0`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
@@ -45,6 +45,9 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 - Conditional requests (`ETag` / `Last-Modified`): a 304 response skips download and parsing
 - Refresh all feeds at once with a concurrency cap of 6; auto-refresh intervals of 10 / 15 / 20 /
   30 / 45 minutes or 1 hour
+- Deep links: the app registers the `feed://` and `rssreader://` schemes, so clicking a link in the
+  browser (for example RSSHub Radar's "Local reader") opens the app with the feed URL prefilled, or
+  jumps to the feed if it is already subscribed
 
 ### Reading experience
 
@@ -197,7 +200,7 @@ Grab a build from Releases (both platforms carry the same files):
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.2.1_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.3.0_x64-setup.exe` | NSIS installer (recommended) |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
 | `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
@@ -295,6 +298,7 @@ Main configuration lives in `src-tauri/tauri.conf.json`:
 | `app.security.csp` | Strict CSP | Restricts scripts and resources; `img-src` allows `rssimg:` |
 | `bundle.targets` | `all` | Bundle every target of the current platform |
 | `plugins.updater` | Endpoints + signing public key | GitHub / Forgejo `latest.json`; Windows install mode `passive` |
+| `plugins.deep-link` | `feed` / `rssreader` | Registers the OS protocol handlers for one-click subscription from the browser |
 
 ## Data storage
 
@@ -330,8 +334,8 @@ The state file carries a `schema_version`; older files are upgraded on read by `
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<contents of RSSReader_0.2.1_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.1/RSSReader_0.2.1_x64-setup.exe"
+         "signature": "<contents of RSSReader_0.3.0_x64-setup.exe.sig>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.0/RSSReader_0.3.0_x64-setup.exe"
        }
      }
    }

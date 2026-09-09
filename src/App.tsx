@@ -3,7 +3,9 @@
  * 描述: RSS 阅读器主应用组件，Fluent 2 两栏布局 + 模态 NavigationView 抽屉
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { save as showSaveDialog, open as showOpenDialog } from "@tauri-apps/plugin-dialog";
+import { AddFeedModal } from "./features/rss/components/AddFeedModal";
 import { ArticleList } from "./features/rss/components/ArticleList";
 import { ArticleView } from "./features/rss/components/ArticleView";
 import { SettingsModal } from "./features/rss/components/SettingsModal";
@@ -12,6 +14,7 @@ import { FeedList } from "./features/rss/components/FeedList";
 import * as rssService from "./features/rss/services/rssService";
 import * as updateService from "./features/rss/services/updateService";
 import type { AppState, Feed, FetchResult, Group } from "./features/rss/types";
+import { call } from "./lib/tauri";
 import {
   applyTheme,
   buildProxyArg,
@@ -64,6 +67,8 @@ function App(): JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 深链带来的订阅地址（非 null 时弹出添加对话框并预填）
+  const [pendingFeedUrl, setPendingFeedUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   // 文章列表宽度（可拖拽调整，持久化）
   const [articleListWidth, setArticleListWidth] = useState<number>(() => {
@@ -191,6 +196,34 @@ function App(): JSX.Element {
   }, []);
 
   const clearMessages = useCallback(() => setMessages([]), []);
+
+  /** 深链地址：已订阅则定位到该源，否则弹添加对话框并预填 */
+  const handleDeepLink = useCallback(
+    (url: string) => {
+      const existing = stateRef.current.feeds.find((feed) => feed.url === url);
+      if (existing) {
+        setSelectedFeedId(existing.id);
+        setSelectedArticleId(null);
+        addMessage("info", `已订阅该源：${existing.title || existing.url}`);
+        return;
+      }
+      setPendingFeedUrl(url);
+    },
+    [addMessage],
+  );
+
+  // 深链：冷启动取 Rust 侧暂存的地址（事件在 webview 加载前就发出了），运行中监听 feed-link
+  useEffect(() => {
+    void call<string | null>("take_pending_feed_link")
+      .then((url) => {
+        if (url) handleDeepLink(url);
+      })
+      .catch(() => {});
+    const unlisten = listen<string>("feed-link", (event) => handleDeepLink(event.payload));
+    return () => {
+      void unlisten.then((off) => off());
+    };
+  }, [handleDeepLink]);
 
   // 启动后延迟静默检查更新：离线 / 无发布包等情况静默忽略，有新版本时只提示不自动安装
   useEffect(() => {
@@ -1072,6 +1105,18 @@ function App(): JSX.Element {
           onCleanupOldArticles={handleCleanupOldArticles}
           onBackup={handleBackup}
           onRestore={handleRestore}
+        />
+      )}
+
+      {pendingFeedUrl !== null && (
+        <AddFeedModal
+          initialUrl={pendingFeedUrl}
+          onClose={() => setPendingFeedUrl(null)}
+          onAdd={async (url) => {
+            await handleAddFeed(url);
+            setPendingFeedUrl(null);
+            addMessage("success", `已添加订阅：${url}`);
+          }}
         />
       )}
 

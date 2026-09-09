@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.2.1`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.3.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
@@ -40,6 +40,8 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 每个订阅源可单独设置「应用内阅读」或「外部浏览器打开」
 - 条件请求（`ETag` / `Last-Modified`）：订阅源未变化时服务端返回 304，跳过下载与解析
 - 一键刷新全部订阅源，抓取并发上限 6；自动抓取间隔可选 10 / 15 / 20 / 30 / 45 分钟或 1 小时
+- 深链订阅：注册 `feed://` 与 `rssreader://` 协议，浏览器里点链接（如 RSSHub Radar 的「本地阅读器」）
+  即打开应用并预填订阅地址；已订阅的源直接定位过去
 
 ### 阅读体验
 
@@ -174,7 +176,7 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.2.1_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.3.0_x64-setup.exe` | NSIS 安装程序（推荐） |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI 安装包 |
 | `RSSReader_0.1.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
@@ -266,6 +268,7 @@ Rust 侧通过 `#[tauri::command]` 暴露以下命令，前端经
 | `app.security.csp` | 严格 CSP | 限制脚本与资源来源，`img-src` 放行 `rssimg:` |
 | `bundle.targets` | `all` | 打包当前平台全部目标 |
 | `plugins.updater` | 检查地址 + 签名公钥 | GitHub / Forgejo 的 `latest.json`；Windows 安装模式 `passive` |
+| `plugins.deep-link` | `feed` / `rssreader` | 注册为系统协议处理器，支持从浏览器一键订阅 |
 
 ## 数据存储
 
@@ -301,8 +304,8 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<RSSReader_0.2.1_x64-setup.exe.sig 的内容>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.1/RSSReader_0.2.1_x64-setup.exe"
+         "signature": "<RSSReader_0.3.0_x64-setup.exe.sig 的内容>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.0/RSSReader_0.3.0_x64-setup.exe"
        }
      }
    }

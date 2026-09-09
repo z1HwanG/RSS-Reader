@@ -8,10 +8,12 @@ import * as rssService from "../services/rssService";
 interface AddFeedModalProps {
   onClose: () => void;
   onAdd: (url: string) => Promise<void>;
+  /** 深链等场景预填的地址 */
+  initialUrl?: string;
 }
 
-export function AddFeedModal({ onClose, onAdd }: AddFeedModalProps): JSX.Element {
-  const [url, setUrl] = useState("");
+export function AddFeedModal({ onClose, onAdd, initialUrl }: AddFeedModalProps): JSX.Element {
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

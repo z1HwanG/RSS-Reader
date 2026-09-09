@@ -10,6 +10,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 
 ## [未发布] / Unreleased
 
+## [0.3.0] - 2026-09-09
+
+### 新增 / Added
+
+- 深链订阅：注册 `feed://` 与 `rssreader://` 协议处理器，从浏览器（如 RSSHub Radar 的「本地阅读器」）
+  点击链接即可打开应用并预填订阅地址；已订阅的源直接定位。冷启动与运行中都已覆盖（单实例转发）。
+  Deep-link subscription: registers the `feed://` and `rssreader://` protocol handlers, so clicking a
+  link in the browser (for example RSSHub Radar's "Local reader") opens the app with the feed URL
+  prefilled, or jumps to the feed if already subscribed. Both cold start and running instances are
+  handled (forwarded by the single-instance plugin).
+
 ## [0.2.1] - 2026-09-09
 
 ### 新增 / Added
@@ -105,7 +116,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.0...v0.1.1
