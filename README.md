@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.3.0`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.3.1`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
@@ -200,7 +200,7 @@ Grab a build from Releases (both platforms carry the same files):
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.3.0_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.3.1_x64-setup.exe` | NSIS installer (recommended) |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
 | `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
@@ -334,8 +334,8 @@ The state file carries a `schema_version`; older files are upgraded on read by `
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<contents of RSSReader_0.3.0_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.0/RSSReader_0.3.0_x64-setup.exe"
+         "signature": "<contents of RSSReader_0.3.1_x64-setup.exe.sig>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.1/RSSReader_0.3.1_x64-setup.exe"
        }
      }
    }

@@ -10,6 +10,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 
 ## [未发布] / Unreleased
 
+## [0.3.1] - 2026-09-09
+
+### 变更 / Changed
+
+- 优化「添加订阅源」对话框：标题加图标与支持格式说明、地址输入框撑满对话框宽度、
+  输入为空时禁用「添加」、修改输入即清除报错、支持 Esc 关闭，并补充无障碍属性。
+  Improved the "add feed" dialog: icon and supported-format hint in the header, a full-width URL
+  field, disabled submit while empty, clearing the error as you type, Esc to close, and
+  accessibility attributes.
+
 ## [0.3.0] - 2026-09-09
 
 ### 新增 / Added
@@ -116,7 +126,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.1...v0.2.0

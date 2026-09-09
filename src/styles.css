@@ -1443,6 +1443,44 @@ textarea:focus-visible {
   margin-bottom: 12px;
 }
 
+/* 添加订阅源对话框：标题带图标 + 格式说明 */
+.modal-add-feed {
+  width: 460px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.modal-head h2 {
+  margin-bottom: 2px;
+}
+
+.modal-head-icon {
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--f2-accent-fg);
+}
+
+.modal-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+/* 地址输入框占满对话框宽度（.f2-text-field 未设宽度，默认只有浏览器内置的约 20 字符） */
+.modal-add-feed .f2-text-field {
+  width: 100%;
+}
+
+/* 报错紧跟在输入框下方 */
+.modal-add-feed .modal-error {
+  margin-top: 8px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
