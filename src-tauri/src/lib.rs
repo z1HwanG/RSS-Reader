@@ -8,6 +8,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // 自动更新：检查 → 下载 → 运行安装包（Windows 走 passive 静默模式）；
+        // process 插件提供安装完成后的重启能力
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ProxySetting(RwLock::new(None)))
         .manage(ClientCache::new())
         // 文章图片走本地 rssimg 协议：由 Rust 侧统一抓取（带浏览器 UA + 应用代理），

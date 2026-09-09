@@ -10,10 +10,12 @@ import { SettingsModal } from "./features/rss/components/SettingsModal";
 import { TitleBar, type AppMessage } from "./features/rss/components/TitleBar";
 import { FeedList } from "./features/rss/components/FeedList";
 import * as rssService from "./features/rss/services/rssService";
+import * as updateService from "./features/rss/services/updateService";
 import type { AppState, Feed, FetchResult, Group } from "./features/rss/types";
 import {
   applyTheme,
   buildProxyArg,
+  buildProxyUrl,
   CLEANUP_DAY_OPTIONS,
   listenSystemTheme,
   loadPreferences,
@@ -71,6 +73,9 @@ function App(): JSX.Element {
   const articleWidthRef = useRef(articleListWidth);
   // 应用偏好（主题 / 字号 / 自动抓取频率）
   const [prefs, setPrefs] = useState<Preferences>(() => loadPreferences());
+  // 最新偏好的 ref：供启动检查更新这类只读一次的场景使用，避免把 prefs 放进 effect 依赖
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
   // 文章列表渲染上限：大列表分批渲染，滚动到底部自动加载更多
   const [renderLimit, setRenderLimit] = useState(300);
   // 搜索关键字（会话内状态，不持久化）
@@ -186,6 +191,23 @@ function App(): JSX.Element {
   }, []);
 
   const clearMessages = useCallback(() => setMessages([]), []);
+
+  // 启动后延迟静默检查更新：离线 / 无发布包等情况静默忽略，有新版本时只提示不自动安装
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      updateService
+        .checkForUpdate(buildProxyUrl(prefsRef.current.proxy))
+        .then((update) => {
+          if (update) {
+            addMessage("info", `发现新版本 v${update.version}，可在「设置 → 关于」中更新`);
+          }
+        })
+        .catch(() => {
+          /* 静默忽略 */
+        });
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [addMessage]);
 
   // 选中文章时标记为已读
   useEffect(() => {

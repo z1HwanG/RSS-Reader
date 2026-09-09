@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.1.1`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.2.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建。
 
 ## 功能特性
@@ -75,6 +75,13 @@ Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releas
 - 全局链接守卫：拦截 WebView 内所有 `<a>` 点击改用系统默认浏览器打开，避免应用 UI 被外部页面覆盖且无法返回；
   同时屏蔽 WebView 默认右键菜单（Back / Refresh / Save as / Print 等）；应用自绘的右键菜单不受影响，文本输入框内仍保留系统粘贴 / 复制菜单
 
+### 自动更新
+
+- 启动后延迟静默检查更新，发现新版本时在消息中心提示；也可在「设置 → 关于」手动检查
+- 应用内直接下载并安装（Windows 走 NSIS 安装器的 passive 模式），安装完成后自动重启
+- 更新包使用 minisign 签名，公钥内置于应用，签名校验不通过则拒绝安装
+- 更新清单优先取 GitHub Releases，失败时回退 Forgejo Releases；应用内代理设置会一并用于更新请求
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -82,7 +89,7 @@ Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releas
 | 桌面壳 | Tauri 2（Rust） |
 | 前端 | React 18 + TypeScript（strict）+ Vite 5 |
 | 样式 | 原生 CSS，Fluent 2 设计语言（含 light / dark 主题变量） |
-| 图标 | Material Symbols Rounded（本地子集化，约 36 KB） |
+| 图标 | Material Symbols Rounded（本地子集化，约 37 KB） |
 | Feed 解析 | feed-rs 2（RSS 2.0/1.0、Atom、JSON Feed） |
 | HTTP | reqwest 0.12（rustls TLS、http2、gzip / brotli / deflate、system-proxy、socks） |
 | Tauri 插件 | @tauri-apps/plugin-opener、@tauri-apps/plugin-dialog |
@@ -162,7 +169,7 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.1.1_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.2.0_x64-setup.exe` | NSIS 安装程序（推荐） |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI 安装包 |
 | `RSSReader_0.1.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
@@ -191,7 +198,7 @@ npm run tauri build  # 打包当前平台安装包（Windows .msi/.exe、macOS .
 ### 图标字体子集化
 
 图标使用本地化的 Material Symbols Rounded 并已子集化：完整可变字体约 5 MB，
-项目只用到 40 余个图标，子集后约 36 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
+项目只用到 40 余个图标，子集后约 37 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
 
 新增图标后重新生成：
 
@@ -255,6 +262,7 @@ Rust 侧通过 `#[tauri::command]` 暴露以下命令，前端经
 | `app.windows` | 1100×750（最小 800×600） | 主窗口尺寸、可调、居中、无系统边框自定义标题栏 |
 | `app.security.csp` | 严格 CSP | 限制脚本与资源来源，`img-src` 放行 `rssimg:` |
 | `bundle.targets` | `all` | 打包当前平台全部目标 |
+| `plugins.updater` | 检查地址 + 签名公钥 | GitHub / Forgejo 的 `latest.json`；Windows 安装模式 `passive` |
 
 ## 数据存储
 
@@ -267,6 +275,38 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 | Linux | `~/.local/share/com.rssreader.app/state.json` |
 
 状态文件带 `schema_version`，旧版本文件在读取时由 `migrate_state` 升级。
+
+## 发布新版本
+
+1. 升版本号：`npm version minor --no-git-tag-version`，并同步 `src-tauri/Cargo.toml`、
+   `Cargo.lock`、`tauri.conf.json` 与两份 README 的项目状态。
+2. 带签名构建（私钥路径按实际填写）：
+
+   ```bash
+   export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/rss-reader.key"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+   npm run tauri build
+   ```
+
+3. 产物在 `src-tauri/target/release/bundle/{msi,nsis}/`，每个安装包旁边会生成 `.sig` 签名文件。
+4. 把安装包与 `.sig` 一起上传到 GitHub / Forgejo 的 Release，并附上一个 `latest.json`：
+
+   ```json
+   {
+     "version": "0.2.0",
+     "notes": "本次更新说明",
+     "pub_date": "2026-09-09T12:00:00Z",
+     "platforms": {
+       "windows-x86_64": {
+         "signature": "<RSSReader_0.2.0_x64-setup.exe.sig 的内容>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.0_x64-setup.exe"
+       }
+     }
+   }
+   ```
+
+5. 客户端下次检查即可发现新版本。私钥 `~/.tauri/rss-reader.key` 必须妥善备份：
+   丢失后无法再签发现有用户能接受的更新包。
 
 ## 常见问题
 

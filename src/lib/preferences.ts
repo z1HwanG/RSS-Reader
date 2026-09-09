@@ -121,3 +121,14 @@ export function buildProxyArg(prefs: Preferences): ProxyConfig | undefined {
   if (!prefs.proxy.enabled || !prefs.proxy.host) return undefined;
   return { enabled: true, host: prefs.proxy.host, port: prefs.proxy.port, kind: prefs.proxy.kind };
 }
+
+/**
+ * 将代理配置转为 URL 字符串（供 updater 插件等需要 URL 的场景使用）。
+ * 未启用或未填主机时返回 undefined，交给系统代理。
+ */
+export function buildProxyUrl(proxy: ProxyPrefs): string | undefined {
+  if (!proxy.enabled || !proxy.host) return undefined;
+  // SOCKS5 走 socks5h：域名交给代理解析，规避本地 DNS 污染
+  const scheme = proxy.kind === "socks5" ? "socks5h" : "http";
+  return `${scheme}://${proxy.host}:${proxy.port}`;
+}

@@ -6,9 +6,10 @@
  *   网络: HTTP 代理（格式校验 + 连通性测试）；通用: 清理缓存 / 备份还原
  *   所有设置即时生效（含阅读字号）；点击遮罩或按 Esc 关闭
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { save as showSaveDialog, open as showOpenDialog } from "@tauri-apps/plugin-dialog";
 import {
+  buildProxyUrl,
   CLEANUP_DAY_OPTIONS,
   type RefreshFrequency,
   type ThemePreference,
@@ -16,6 +17,7 @@ import {
 } from "../../../lib/preferences";
 import type { Feed, Group } from "../types";
 import * as rssService from "../services/rssService";
+import * as updateService from "../services/updateService";
 import pkg from "../../../../package.json";
 
 type SettingsTab = "feeds" | "organize" | "appearance" | "network" | "general" | "about";
@@ -184,6 +186,13 @@ function generateOpml(feeds: Feed[], groups: Group[]): string {
   );
 }
 
+/** 字节数格式化（更新下载进度展示用） */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
 export function SettingsModal({
   onClose,
   feeds,
@@ -238,6 +247,54 @@ export function SettingsModal({
   const [portDraft, setPortDraft] = useState<string>(String(proxy.port));
   const [testingProxy, setTestingProxy] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // ===== 自动更新 =====
+  /** idle 未检查 / checking 检查中 / latest 已是最新 / available 有新版本 / installing 下载安装中 / error 失败 */
+  const [updatePhase, setUpdatePhase] = useState<
+    "idle" | "checking" | "latest" | "available" | "installing" | "error"
+  >("idle");
+  const [updateInfo, setUpdateInfo] = useState<updateService.AvailableUpdate | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<updateService.DownloadProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  /** 下载进度百分比；服务端未给总大小时为 null（显示不确定进度条） */
+  const updatePercent =
+    updateProgress?.total && updateProgress.total > 0
+      ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100))
+      : null;
+
+  /** 检查更新：代理取应用内配置，未启用时交给系统代理 */
+  const handleCheckUpdate = useCallback(async (): Promise<void> => {
+    setUpdatePhase("checking");
+    setUpdateError(null);
+    setUpdateInfo(null);
+    try {
+      const result = await updateService.checkForUpdate(buildProxyUrl(proxy));
+      if (result) {
+        setUpdateInfo(result);
+        setUpdatePhase("available");
+      } else {
+        setUpdatePhase("latest");
+      }
+    } catch (err) {
+      setUpdateError(String(err));
+      setUpdatePhase("error");
+    }
+  }, [proxy]);
+
+  /** 下载并安装：Windows 上安装器接管后应用自动退出并重启 */
+  const handleInstallUpdate = useCallback(async (): Promise<void> => {
+    if (!updateInfo) return;
+    setUpdatePhase("installing");
+    setUpdateError(null);
+    setUpdateProgress({ downloaded: 0, total: null });
+    try {
+      await updateInfo.install(setUpdateProgress);
+    } catch (err) {
+      setUpdateError(String(err));
+      setUpdatePhase("error");
+    }
+  }, [updateInfo]);
 
   const sortedFeeds = [...feeds].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -1040,6 +1097,68 @@ export function SettingsModal({
               <div className="about-version">版本 {pkg.version}</div>
               <div className="about-version" style={{ marginTop: "8px" }}>
                 Tauri 2 + React + Fluent 2
+              </div>
+
+              {/* 更新检查与安装 */}
+              <div className="update-card">
+                {updatePhase === "available" && updateInfo ? (
+                  <>
+                    <div className="update-line">
+                      <span className="material-symbols-rounded update-icon-accent">new_releases</span>
+                      发现新版本 <strong>v{updateInfo.version}</strong>
+                      <span className="update-current">当前 v{updateInfo.currentVersion}</span>
+                    </div>
+                    {updateInfo.notes && <div className="update-notes">{updateInfo.notes}</div>}
+                    <button
+                      type="button"
+                      className="f2-btn-accent"
+                      onClick={() => void handleInstallUpdate()}
+                    >
+                      <span className="material-symbols-rounded">file_download</span>
+                      下载并安装
+                    </button>
+                  </>
+                ) : updatePhase === "installing" ? (
+                  <>
+                    <div className="update-line">正在下载更新…</div>
+                    <div className="update-progress">
+                      <div
+                        className={`update-progress-bar${updatePercent === null ? " indeterminate" : ""}`}
+                        style={updatePercent !== null ? { width: `${updatePercent}%` } : undefined}
+                      />
+                    </div>
+                    <div className="update-hint">
+                      {formatBytes(updateProgress?.downloaded ?? 0)}
+                      {updateProgress?.total ? ` / ${formatBytes(updateProgress.total)}` : ""}
+                      {updatePercent !== null ? `（${updatePercent}%）` : ""}
+                    </div>
+                    <div className="update-hint">下载完成后会启动安装程序并重启应用。</div>
+                  </>
+                ) : (
+                  <>
+                    {updatePhase === "latest" && (
+                      <div className="update-line">
+                        <span className="material-symbols-rounded update-icon-accent">check_circle</span>
+                        已是最新版本
+                      </div>
+                    )}
+                    {updatePhase === "error" && (
+                      <div className="update-line update-line-error">
+                        <span className="material-symbols-rounded">error</span>
+                        <span>检查更新失败：{updateError}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="f2-btn-soft"
+                      disabled={updatePhase === "checking"}
+                      onClick={() => void handleCheckUpdate()}
+                    >
+                      <span className="material-symbols-rounded">refresh</span>
+                      {updatePhase === "checking" ? "正在检查…" : "检查更新"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

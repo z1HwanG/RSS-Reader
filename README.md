@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.1.1`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.2.0`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [Releases](https://github.com/z1HwanG/RSS-Reader/releases); macOS and Linux builds require building
 from source as described below.
@@ -95,6 +95,17 @@ from source as described below.
   context menu (Back / Refresh / Save as / Print) is suppressed, while the app's own context menus
   still work and text inputs keep the native paste / copy menu
 
+### Auto-update
+
+- A delayed silent check at startup with a notice in the message centre; manual check in
+  Settings → About
+- Download and install in-app (on Windows the NSIS installer runs in passive mode) and the app
+  restarts afterwards
+- Update packages are minisign-signed and the public key is embedded in the app; a failing signature
+  is rejected
+- The manifest comes from GitHub Releases first and falls back to Forgejo Releases; the in-app proxy
+  setting is used for update requests
+
 ## Tech stack
 
 | Layer | Technology |
@@ -102,7 +113,7 @@ from source as described below.
 | Desktop shell | Tauri 2 (Rust) |
 | Frontend | React 18 + TypeScript (strict) + Vite 5 |
 | Styling | Plain CSS with Fluent 2 design language (light / dark theme variables) |
-| Icons | Material Symbols Rounded (locally subset, ~36 KB) |
+| Icons | Material Symbols Rounded (locally subset, ~37 KB) |
 | Feed parsing | feed-rs 2 (RSS 2.0/1.0, Atom, JSON Feed) |
 | HTTP | reqwest 0.12 (rustls TLS, http2, gzip / brotli / deflate, system-proxy, socks) |
 | Tauri plugins | @tauri-apps/plugin-opener, @tauri-apps/plugin-dialog |
@@ -182,7 +193,7 @@ Grab a build from [Releases](https://github.com/z1HwanG/RSS-Reader/releases/late
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.1.1_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.2.0_x64-setup.exe` | NSIS installer (recommended) |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
 | `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
@@ -211,7 +222,7 @@ Artifacts are written to `src-tauri/target/release/bundle/`.
 ### Icon font subsetting
 
 Icons use a local Material Symbols Rounded font, already subset: the full variable font is about
-5 MB, while this project uses a few dozen icons and ships a ~36 KB subset (keeping `rlig` ligatures
+5 MB, while this project uses a few dozen icons and ships a ~37 KB subset (keeping `rlig` ligatures
 and the `FILL` variable axis).
 
 After adding icons, regenerate it:
@@ -280,6 +291,7 @@ Main configuration lives in `src-tauri/tauri.conf.json`:
 | `app.windows` | 1100×750 (min 800×600) | Main window size, resizable, centered, frameless custom title bar |
 | `app.security.csp` | Strict CSP | Restricts scripts and resources; `img-src` allows `rssimg:` |
 | `bundle.targets` | `all` | Bundle every target of the current platform |
+| `plugins.updater` | Endpoints + signing public key | GitHub / Forgejo `latest.json`; Windows install mode `passive` |
 
 ## Data storage
 
@@ -292,6 +304,39 @@ Tauri derives `app_data_dir` from the `identifier`; the state file is `state.jso
 | Linux | `~/.local/share/com.rssreader.app/state.json` |
 
 The state file carries a `schema_version`; older files are upgraded on read by `migrate_state`.
+
+## Releasing
+
+1. Bump the version: `npm version minor --no-git-tag-version`, then sync `src-tauri/Cargo.toml`,
+   `Cargo.lock`, `tauri.conf.json` and the project-status line in both READMEs.
+2. Build with the signing key (adjust the key path):
+
+   ```bash
+   export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/rss-reader.key"
+   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+   npm run tauri build
+   ```
+
+3. Artifacts land in `src-tauri/target/release/bundle/{msi,nsis}/`, each with a `.sig` file next to it.
+4. Upload the installers and their `.sig` files to the GitHub / Forgejo release, plus a `latest.json`:
+
+   ```json
+   {
+     "version": "0.2.0",
+     "notes": "release notes",
+     "pub_date": "2026-09-09T12:00:00Z",
+     "platforms": {
+       "windows-x86_64": {
+         "signature": "<contents of RSSReader_0.2.0_x64-setup.exe.sig>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.0_x64-setup.exe"
+       }
+     }
+   }
+   ```
+
+5. Clients pick the new version up on their next check. Back up the private key
+   `~/.tauri/rss-reader.key`: if it is lost you can no longer sign updates that existing installs
+   will accept.
 
 ## Troubleshooting
 

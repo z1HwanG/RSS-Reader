@@ -1,6 +1,6 @@
 [package]
 name = "rss-reader"
-version = "0.1.1"
+version = "0.2.0"
 description = "RSS 桌面阅读器"
 authors = ["RSS Reader"]
 edition = "2021"
@@ -26,6 +26,8 @@ hex = "0.4"
 url = "2"
 log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
+tauri-plugin-updater = "2.11.0"
+tauri-plugin-process = "2.3.1"
 
 [profile.release]
 strip = true

@@ -10,6 +10,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 
 ## [未发布] / Unreleased
 
+## [0.2.0] - 2026-09-09
+
+### 新增 / Added
+
+- 应用内自动更新：启动后延迟静默检查并在消息中心提示，设置 → 关于可手动检查、下载并安装；
+  Windows 走 NSIS 安装器的 passive 模式，安装完成后自动重启。
+  In-app auto-update: a delayed silent check at startup with a message-centre notice, plus manual
+  check / download / install in Settings → About; on Windows it uses the NSIS installer in passive
+  mode and restarts the app afterwards.
+- 更新包使用 minisign 签名，公钥内置于应用；更新清单优先取 GitHub Releases，失败时回退 Forgejo
+  Releases，应用内代理设置会一并用于更新请求。
+  Update packages are minisign-signed with the public key embedded in the app; the manifest is
+  fetched from GitHub Releases first and falls back to Forgejo Releases, and the in-app proxy setting
+  is used for update requests.
+
 ## [0.1.1] - 2026-09-09
 
 ### 修复 / Fixed
@@ -75,6 +90,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.1...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/z1HwanG/RSS-Reader/releases/tag/v0.1.0
