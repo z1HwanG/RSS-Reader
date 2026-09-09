@@ -1,6 +1,6 @@
 [package]
 name = "rss-reader"
-version = "0.1.0"
+version = "0.1.1"
 description = "RSS 桌面阅读器"
 authors = ["RSS Reader"]
 edition = "2021"

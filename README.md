@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.1.0`, early development. No prebuilt installers are published yet — build
+**Project status**: `0.1.1`, early development. No prebuilt installers are published yet — build
 from source as described below. Features and the persisted format (`schema_version` in
 `state.json`) may still change.
 
