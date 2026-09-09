@@ -168,6 +168,8 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
 
+同一批文件也发布在 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)。
+
 ### 从源码运行
 
 ```bash

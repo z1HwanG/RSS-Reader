@@ -187,7 +187,8 @@ Grab a build from [Releases](https://github.com/z1HwanG/RSS-Reader/releases/late
 | `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
-or Linux packages yet.
+or Linux packages yet. The same files are also published on
+[Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases).
 
 ### Run from source
 
