@@ -331,11 +331,14 @@ The state file carries a `schema_version`; older files are upgraded on read by `
      "platforms": {
        "windows-x86_64": {
          "signature": "<contents of RSSReader_0.2.1_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.1_x64-setup.exe"
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.1/RSSReader_0.2.1_x64-setup.exe"
        }
      }
    }
    ```
+
+   Each host serves its own `latest.json`: the GitHub one points at GitHub assets and the Forgejo one
+   at Forgejo assets; the client tries them in order and falls back automatically.
 
 5. Clients pick the new version up on their next check. Back up the private key
    `~/.tauri/rss-reader.key`: if it is lost you can no longer sign updates that existing installs

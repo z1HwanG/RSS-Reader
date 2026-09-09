@@ -302,11 +302,14 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
      "platforms": {
        "windows-x86_64": {
          "signature": "<RSSReader_0.2.1_x64-setup.exe.sig 的内容>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.1_x64-setup.exe"
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.1/RSSReader_0.2.1_x64-setup.exe"
        }
      }
    }
    ```
+
+   两个平台各自托管一份 `latest.json`：GitHub 的那份指向 GitHub 资源，Forgejo 的那份指向 Forgejo 资源，
+   客户端按顺序尝试，前一个失败自动回退到下一个。
 
 5. 客户端下次检查即可发现新版本。私钥 `~/.tauri/rss-reader.key` 必须妥善备份：
    丢失后无法再签发现有用户能接受的更新包。
