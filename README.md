@@ -90,7 +90,9 @@ from source as described below. Features and the persisted format (`schema_versi
   privilege
 - External links always go through the opener plugin; the frontend has no raw file or shell access
 - A global link guard intercepts every `<a>` click inside the WebView and opens it in the system
-  browser instead, so the app UI can never be replaced by a foreign page
+  browser instead, so the app UI can never be replaced by a foreign page; the WebView's default
+  context menu (Back / Refresh / Save as / Print) is suppressed, while the app's own context menus
+  still work
 
 ## Tech stack
 
