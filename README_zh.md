@@ -26,7 +26,8 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 深色 / 跟随系统主题。
 
 **项目状态**：`0.2.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
-Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建。
+Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
+计划中的功能见 [TODO.md](TODO.md)。
 
 ## 功能特性
 

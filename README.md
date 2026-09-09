@@ -30,7 +30,7 @@ title bar, and supports light, dark and system themes.
 **Project status**: `0.2.0`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [Releases](https://github.com/z1HwanG/RSS-Reader/releases); macOS and Linux builds require building
-from source as described below.
+from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 
 ## Features
 
