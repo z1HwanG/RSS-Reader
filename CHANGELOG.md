@@ -28,6 +28,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 新增 Apache-2.0 `LICENSE`、`.gitattributes`（统一行尾为 LF）。
   Added the Apache-2.0 `LICENSE` and `.gitattributes` (LF line endings).
 
+### 发布 / Release
+
+- 发布 Windows x64 安装包（NSIS `RSSReader_0.1.1_x64-setup.exe`、MSI `RSSReader_0.1.1_x64_en-US.msi`）
+  与免安装单文件 `RSSReader_0.1.1_x64_portable.exe`。
+  Published Windows x64 installers (NSIS `RSSReader_0.1.1_x64-setup.exe`, MSI
+  `RSSReader_0.1.1_x64_en-US.msi`) and a portable single file `RSSReader_0.1.1_x64_portable.exe`.
+
 ## [0.1.0] - 2026-09-09
 
 ### 新增 / Added

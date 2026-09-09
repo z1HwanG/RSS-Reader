@@ -27,9 +27,10 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.1.1`, early development. No prebuilt installers are published yet — build
-from source as described below. Features and the persisted format (`schema_version` in
-`state.json`) may still change.
+**Project status**: `0.1.1`, early development; features and the persisted format (`schema_version`
+in `state.json`) may still change. A Windows x64 installer is available on
+[Releases](https://github.com/z1HwanG/RSS-Reader/releases); macOS and Linux builds require building
+from source as described below.
 
 ## Features
 
@@ -174,6 +175,21 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 Optional: [uv](https://docs.astral.sh/uv/) — only needed to regenerate the icon font subset.
 
 ## Getting started
+
+### Download (Windows)
+
+Grab a build from [Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest):
+
+| File | Notes |
+|------|-------|
+| `RSSReader_0.1.1_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
+| `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
+
+Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
+or Linux packages yet.
+
+### Run from source
 
 ```bash
 npm install          # Install frontend and Tauri CLI dependencies

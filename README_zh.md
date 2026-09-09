@@ -25,8 +25,8 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.1.1`，早期开发阶段，暂未发布预编译安装包，需按下文从源码构建；
-功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.1.1`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建。
 
 ## 功能特性
 
@@ -155,6 +155,20 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 可选：[uv](https://docs.astral.sh/uv/) —— 仅在重新生成图标字体子集时需要。
 
 ## 快速开始
+
+### 下载安装（Windows）
+
+从 [Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest) 下载：
+
+| 文件 | 说明 |
+|------|------|
+| `RSSReader_0.1.1_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.1.1_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.1.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+
+需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
+
+### 从源码运行
 
 ```bash
 npm install          # 安装前端与 Tauri CLI 依赖
