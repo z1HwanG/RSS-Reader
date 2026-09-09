@@ -27,9 +27,10 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.2.0`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.2.1`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
-[Releases](https://github.com/z1HwanG/RSS-Reader/releases); macOS and Linux builds require building
+[GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
+[Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
 from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 
 ## Features
@@ -189,17 +190,19 @@ Optional: [uv](https://docs.astral.sh/uv/) — only needed to regenerate the ico
 
 ### Download (Windows)
 
-Grab a build from [Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest):
+Grab a build from Releases (both platforms carry the same files):
+
+- [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest)
+- [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.2.0_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.2.1_x64-setup.exe` | NSIS installer (recommended) |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
 | `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
-or Linux packages yet. The same files are also published on
-[Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases).
+or Linux packages yet.
 
 ### Run from source
 
@@ -327,8 +330,8 @@ The state file carries a `schema_version`; older files are upgraded on read by `
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<contents of RSSReader_0.2.0_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.0_x64-setup.exe"
+         "signature": "<contents of RSSReader_0.2.1_x64-setup.exe.sig>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.1_x64-setup.exe"
        }
      }
    }

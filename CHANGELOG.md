@@ -10,6 +10,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 
 ## [未发布] / Unreleased
 
+## [0.2.1] - 2026-09-09
+
 ### 新增 / Added
 
 - 设置 → 关于 增加问题反馈入口（GitHub 与 Forgejo 的 Issues）。
@@ -20,6 +22,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 「检查更新」按钮移到版本号旁边，更新卡片仅在发现新版本或下载中时显示。
   Moved the "check for updates" button next to the version number; the update card now only shows
   when an update is available or a download is running.
+- README 的下载入口同时列出 GitHub 与 Forgejo Releases（此前只指向 GitHub）。
+  The README download section now lists both GitHub and Forgejo Releases instead of GitHub only.
 
 ## [0.2.0] - 2026-09-09
 
@@ -101,7 +105,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/z1HwanG/RSS-Reader/releases/tag/v0.1.0

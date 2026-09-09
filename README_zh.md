@@ -25,8 +25,9 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.2.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
-Windows x64 安装包见 [Releases](https://github.com/z1HwanG/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
+**项目状态**：`0.2.1`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
+[Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
 
 ## 功能特性
@@ -166,17 +167,18 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 ### 下载安装（Windows）
 
-从 [Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest) 下载：
+从 Releases 下载（两个平台内容一致）：
+
+- [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases/latest)
+- [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.2.0_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.2.1_x64-setup.exe` | NSIS 安装程序（推荐） |
 | `RSSReader_0.1.1_x64_en-US.msi` | MSI 安装包 |
 | `RSSReader_0.1.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
-
-同一批文件也发布在 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)。
 
 ### 从源码运行
 
@@ -299,8 +301,8 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<RSSReader_0.2.0_x64-setup.exe.sig 的内容>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.0_x64-setup.exe"
+         "signature": "<RSSReader_0.2.1_x64-setup.exe.sig 的内容>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.2.0/RSSReader_0.2.1_x64-setup.exe"
        }
      }
    }
