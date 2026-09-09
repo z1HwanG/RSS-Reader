@@ -73,7 +73,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 - 抓取前校验 URL 协议（仅 `http` / `https`）；capabilities 采用最小权限
 - 外部链接统一走 opener 插件，前端无裸文件 / shell 访问权限
 - 全局链接守卫：拦截 WebView 内所有 `<a>` 点击改用系统默认浏览器打开，避免应用 UI 被外部页面覆盖且无法返回；
-  同时屏蔽 WebView 默认右键菜单（Back / Refresh / Save as / Print 等），应用自绘的右键菜单不受影响
+  同时屏蔽 WebView 默认右键菜单（Back / Refresh / Save as / Print 等）；应用自绘的右键菜单不受影响，文本输入框内仍保留系统粘贴 / 复制菜单
 
 ## 技术栈
 

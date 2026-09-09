@@ -92,7 +92,7 @@ from source as described below. Features and the persisted format (`schema_versi
 - A global link guard intercepts every `<a>` click inside the WebView and opens it in the system
   browser instead, so the app UI can never be replaced by a foreign page; the WebView's default
   context menu (Back / Refresh / Save as / Print) is suppressed, while the app's own context menus
-  still work
+  still work and text inputs keep the native paste / copy menu
 
 ## Tech stack
 
