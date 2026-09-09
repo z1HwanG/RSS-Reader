@@ -1,0 +1,8 @@
+# 文本文件在仓库内统一使用 LF，避免跨平台（Windows / macOS / Linux）行尾漂移
+* text=auto
+
+# 二进制文件不做行尾转换
+*.png  binary
+*.ico  binary
+*.icns binary
+*.woff2 binary

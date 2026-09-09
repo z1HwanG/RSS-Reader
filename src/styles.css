@@ -1,0 +1,2406 @@
+/*
+ * styles.css — Fluent 2 设计系统（Windows 11）
+ *
+ * 设计语言：Fluent 2 / WinUI 3
+ *   - 品牌/强调色：Fluent 2 品牌蓝（浅色 #0F6CBD，深色前景 #479EF5）
+ *   - 字体：Segoe UI Variable（回退 Segoe UI / 微软雅黑）
+ *   - 形状：控件 4px 圆角，浮层/卡片/对话框 8px 圆角
+ *   - 控件：32px 高度按钮、WinUI 文本框（聚焦为底部 2px 强调线）、
+ *           Win11 开关形态的自定义复选框/单选、NavigationView 导航项（36px + 左侧强调条）
+ *   - 浮层：8px 圆角 + 1px 描边 + Flyout 阴影，菜单项 32px 高、选中项左侧强调条
+ *   - 动效：Fluent 标准缓动 cubic-bezier(0,0,0,1)，120/180/250ms 三档
+ *   - 可访问性：:focus-visible 双主题焦点环、prefers-reduced-motion、color-scheme
+ *
+ * 命名约定：设计令牌统一 --f2-*；组件类名统一 f2-* 前缀（Material Symbols 图标字体
+ * 仅为本地化的图标资源，不属于设计语言本身）。
+ */
+
+/* ================================================================
+ * 1. Fluent 2 设计令牌
+ * ================================================================ */
+:root {
+  color-scheme: light;
+
+  /* ---- 品牌强调色（浅色）---- */
+  --f2-accent: #0f6cbd;            /* AccentFillColorDefault */
+  --f2-accent-hover: #115ea3;
+  --f2-accent-pressed: #0f3d78;
+  --f2-accent-fg: #0f6cbd;         /* 链接 / 图标 / 文本强调 */
+  --f2-on-accent: #ffffff;         /* 强调色上的内容 */
+  --f2-on-accent-fg: #ffffff;      /* 强调色填充控件上的内容（徽标/复选框） */
+  --f2-accent-soft: rgba(15, 108, 189, 0.1);   /* 10% 强调色淡染 */
+
+  /* ---- 语义色 ---- */
+  --f2-critical: #c42b1c;          /* 危险填充（按钮/徽标/关闭钮悬停） */
+  --f2-on-critical: #ffffff;
+  --f2-critical-fg: #c42b1c;       /* 危险文本/图标 */
+  --f2-critical-soft: rgba(196, 43, 28, 0.1);
+  --f2-success-fg: #0f7b0f;
+  --f2-success-soft: rgba(15, 123, 15, 0.1);
+  --f2-star: #f8c818;              /* 收藏星标（Windows 惯例金） */
+
+  /* ---- 中性分层 ---- */
+  --f2-bg-base: #f3f3f3;           /* 窗口/标题栏/抽屉 */
+  --f2-bg-layer: #fbfbfb;          /* 次级层（列表栏/卡片内衬） */
+  --f2-bg-solid: #ffffff;          /* 内容面（阅读区/输入框） */
+  --f2-bg-flyout: #f9f9f9;         /* 浮层（菜单/对话框） */
+  --f2-text-1: #242424;
+  --f2-text-2: #5d5d5d;
+  --f2-text-3: #8a8a8a;
+  --f2-stroke: rgba(0, 0, 0, 0.08);        /* 分隔线/卡片描边 */
+  --f2-stroke-strong: rgba(0, 0, 0, 0.14); /* 控件描边 */
+  --f2-stroke-input: rgba(0, 0, 0, 0.45);  /* 输入框描边 */
+
+  /* ---- 控件填充与状态层 ---- */
+  --f2-fill-control: #fbfbfb;
+  --f2-fill-control-hover: #f5f5f5;
+  --f2-fill-control-pressed: #efefef;
+  --f2-fill-subtle-hover: rgba(0, 0, 0, 0.045);
+  --f2-fill-subtle-pressed: rgba(0, 0, 0, 0.09);
+
+  /* ---- 焦点 / 遮罩 ---- */
+  --f2-focus: #1b1b1b;
+  --f2-scrim: rgba(0, 0, 0, 0.3);
+
+  /* ---- 阴影（浅色）---- */
+  --f2-shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 1px rgba(0, 0, 0, 0.1);
+  --f2-shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.19), 0 2px 21px rgba(0, 0, 0, 0.14);
+  --f2-shadow-card: 0 2px 4px rgba(0, 0, 0, 0.08);
+
+  /* ---- 形状 ---- */
+  --f2-radius-sm: 4px;   /* 控件 */
+  --f2-radius-md: 6px;
+  --f2-radius-lg: 8px;   /* 浮层/卡片/对话框 */
+  --f2-radius-pill: 9999px;
+
+  /* ---- 动效（Fluent 标准）---- */
+  --f2-ease: cubic-bezier(0, 0, 0, 1);
+  --f2-dur-1: 120ms;
+  --f2-dur-2: 180ms;
+  --f2-dur-3: 250ms;
+
+  /* ---- 字体 ---- */
+  --f2-font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --f2-font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --f2-font-mono: "Cascadia Code", "Consolas", monospace;
+
+  /* ---- 应用布局 ---- */
+  --app-topbar-height: 44px;
+  --app-drawer-width: 320px;
+  --app-content-max-width: 720px;
+}
+
+/* ---- 深色主题 ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --f2-accent: #115ea3;
+  --f2-accent-hover: #2c6db5;
+  --f2-accent-pressed: #0c518f;
+  --f2-accent-fg: #479ef5;
+  --f2-on-accent: #ffffff;
+  --f2-on-accent-fg: #001322;
+  --f2-accent-soft: rgba(71, 158, 245, 0.12);
+
+  --f2-critical: #c42b1c;
+  --f2-on-critical: #ffffff;
+  --f2-critical-fg: #ff99a4;
+  --f2-critical-soft: rgba(255, 153, 164, 0.12);
+  --f2-success-fg: #6ccb5f;
+  --f2-success-soft: rgba(108, 203, 95, 0.14);
+
+  --f2-bg-base: #202020;
+  --f2-bg-layer: #262626;
+  --f2-bg-solid: #292929;
+  --f2-bg-flyout: #2c2c2c;
+  --f2-text-1: #ffffff;
+  --f2-text-2: #c9c9c9;
+  --f2-text-3: #969696;
+  --f2-stroke: rgba(255, 255, 255, 0.09);
+  --f2-stroke-strong: rgba(255, 255, 255, 0.16);
+  --f2-stroke-input: rgba(255, 255, 255, 0.45);
+
+  --f2-fill-control: #333333;
+  --f2-fill-control-hover: #3a3a3a;
+  --f2-fill-control-pressed: #414141;
+  --f2-fill-subtle-hover: rgba(255, 255, 255, 0.06);
+  --f2-fill-subtle-pressed: rgba(255, 255, 255, 0.1);
+
+  --f2-focus: #ffffff;
+  --f2-scrim: rgba(0, 0, 0, 0.44);
+
+  --f2-shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.48), 0 0 1px rgba(0, 0, 0, 0.6);
+  --f2-shadow-dialog: 0 32px 64px rgba(0, 0, 0, 0.56), 0 2px 21px rgba(0, 0, 0, 0.37);
+  --f2-shadow-card: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ================================================================
+ * 2. 基础
+ * ================================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--f2-font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--f2-text-1);
+  background: var(--f2-bg-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 文本选区用强调色淡染 */
+::selection {
+  background: color-mix(in srgb, var(--f2-accent-fg) 30%, transparent);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Fluent 焦点环：仅键盘触发（focus-visible），鼠标点击不打断视觉 */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--f2-focus);
+  outline-offset: 1px;
+}
+
+/* 输入类控件使用 WinUI 式底部强调线，不用外圈焦点环 */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* Fluent 细滚动条：4px 悬停展开为 8px */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--f2-text-1) 32%, transparent);
+  border: 4px solid transparent;
+  border-radius: var(--f2-radius-pill);
+  background-clip: padding-box;
+  min-height: 32px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--f2-text-1) 50%, transparent);
+  border-width: 2px;
+}
+
+/* ================================================================
+ * 3. 图标字体（本地 Material Symbols，仅图标资源）
+ * ================================================================ */
+@font-face {
+  font-family: "Material Symbols Rounded";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/material-symbols-rounded.woff2") format("woff2");
+}
+
+.material-symbols-rounded {
+  font-family: "Material Symbols Rounded";
+  font-weight: 400;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+.material-symbols-rounded.filled {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+/* ================================================================
+ * 4. 应用布局
+ * ================================================================ */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--f2-bg-base);
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 中间文章列表栏（宽度由 JS 内联控制） */
+.app-content {
+  min-width: 260px;
+  background: var(--f2-bg-layer);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* 可拖拽分界线 */
+.resizer {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--f2-stroke);
+  cursor: col-resize;
+  position: relative;
+  z-index: 10;
+  transition: background var(--f2-dur-1) var(--f2-ease), width var(--f2-dur-1) var(--f2-ease);
+}
+
+.resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+  z-index: 1;
+}
+
+.resizer:hover,
+.resizer:active {
+  background: var(--f2-accent-fg);
+  width: 3px;
+}
+
+/* 右侧阅读区 */
+.app-reader {
+  flex: 1;
+  background: var(--f2-bg-solid);
+  overflow-y: auto;
+  min-width: 0;
+}
+
+/* 加载状态 */
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--f2-text-2);
+}
+
+/* 文章列表分批加载提示 */
+.article-list-more {
+  padding: 14px 0 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--f2-text-2);
+  user-select: none;
+}
+
+/* ================================================================
+ * 5. 顶部标题栏（自定义标题栏 + 命令区 + 窗口控制）
+ * ================================================================ */
+.topbar {
+  height: var(--app-topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--f2-bg-base);
+  color: var(--f2-text-1);
+  border-bottom: 1px solid var(--f2-stroke);
+  user-select: none;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 50;
+  padding: 0 8px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.topbar-title {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 4px;
+}
+
+.topbar-toolbar {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid var(--f2-stroke);
+  margin-right: 4px;
+}
+
+/* 图标按钮：36px 方形、4px 圆角、Subtle 状态层 */
+.f2-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--f2-radius-sm);
+  color: var(--f2-text-1);
+  background: transparent;
+  transition: background var(--f2-dur-1) var(--f2-ease), color var(--f2-dur-1) var(--f2-ease);
+  flex-shrink: 0;
+}
+
+.f2-icon-btn:hover:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.f2-icon-btn:active:not(:disabled) {
+  background: var(--f2-fill-subtle-pressed);
+}
+
+/* 激活态（下拉展开中）：强调色淡染 + 强调色图标 */
+.f2-icon-btn.active {
+  background: var(--f2-accent-soft);
+  color: var(--f2-accent-fg);
+}
+
+.f2-icon-btn .material-symbols-rounded {
+  font-size: 20px;
+}
+
+/* 通知徽标 */
+.topbar-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-critical);
+  color: var(--f2-on-critical);
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--f2-bg-base);
+}
+
+/* 窗口控制按钮 */
+.topbar-window-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.win-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 100%;
+  color: var(--f2-text-1);
+  background: transparent;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.win-control:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.win-control.close:hover {
+  background: var(--f2-critical);
+  color: var(--f2-on-critical);
+}
+
+.win-control .material-symbols-rounded {
+  font-size: 16px;
+}
+
+/* ================================================================
+ * 6. 标题栏搜索框（Win11 设置式圆角矩形 + 聚焦底部强调线）
+ * ================================================================ */
+.topbar-search {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  max-width: 380px;
+  min-width: 140px;
+  margin: 0 12px;
+  padding: 0 10px;
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+  color: var(--f2-text-2);
+  transition: border-color var(--f2-dur-1) var(--f2-ease), box-shadow var(--f2-dur-1) var(--f2-ease);
+}
+
+.topbar-search .material-symbols-rounded {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.topbar-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--f2-text-1);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.topbar-search input::placeholder {
+  color: var(--f2-text-3);
+}
+
+.topbar-search:focus-within {
+  border-color: var(--f2-accent-fg);
+  box-shadow: inset 0 -2px 0 var(--f2-accent-fg);
+}
+
+.search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--f2-radius-pill);
+  border: none;
+  background: transparent;
+  color: var(--f2-text-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.search-clear:hover {
+  background: var(--f2-fill-subtle-hover);
+  color: var(--f2-text-1);
+}
+
+.search-clear .material-symbols-rounded {
+  font-size: 14px;
+}
+
+/* ================================================================
+ * 7. 浮层菜单（下拉菜单 / 右键上下文菜单共用）
+ * ================================================================ */
+.toolbar-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.dropdown-menu,
+.feed-ctx-menu,
+.article-ctx-menu {
+  position: absolute;
+  min-width: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--f2-bg-flyout);
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  box-shadow: var(--f2-shadow-flyout);
+  z-index: 300;
+  padding: 4px;
+  animation: f2-flyout-in var(--f2-dur-2) var(--f2-ease);
+  transform-origin: top right;
+}
+
+.dropdown-menu {
+  top: calc(100% + 4px);
+  right: 0;
+}
+
+.dropdown-menu-wide {
+  min-width: 320px;
+  max-width: 360px;
+}
+
+/* 右键菜单：固定定位，从左上角展开 */
+.feed-ctx-menu,
+.article-ctx-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 500;
+  transform-origin: top left;
+}
+
+/* 菜单项：32px 高、4px 圆角、选中项左侧强调条 */
+.dropdown-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 14px;
+  color: var(--f2-text-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+  text-align: left;
+}
+
+.dropdown-item:hover:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.dropdown-item.selected {
+  color: var(--f2-accent-fg);
+}
+
+.dropdown-item.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-accent-fg);
+}
+
+.dropdown-item .material-symbols-rounded {
+  font-size: 16px;
+  color: var(--f2-text-2);
+  flex-shrink: 0;
+}
+
+.dropdown-item.selected .material-symbols-rounded {
+  color: var(--f2-accent-fg);
+}
+
+.dropdown-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dropdown-item:disabled:hover {
+  background: transparent;
+}
+
+.dropdown-clear {
+  color: var(--f2-text-2);
+}
+
+/* 分区标题 */
+.dropdown-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--f2-text-3);
+  padding: 8px 12px 4px;
+}
+
+.dropdown-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--f2-stroke);
+}
+
+/* 统计区 */
+.dropdown-stats {
+  display: flex;
+  justify-content: space-around;
+  padding: 12px 16px;
+}
+
+.dropdown-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+.dropdown-empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--f2-text-2);
+}
+
+/* 消息列表 */
+.dropdown-msg-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.dropdown-msg {
+  display: flex;
+  gap: 10px;
+  padding: 8px 12px;
+  align-items: flex-start;
+  border-radius: var(--f2-radius-sm);
+}
+
+.dropdown-msg .msg-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.msg-error .msg-icon { color: var(--f2-critical-fg); }
+.msg-success .msg-icon { color: var(--f2-success-fg); }
+.msg-info .msg-icon { color: var(--f2-text-2); }
+
+.msg-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-text {
+  font-size: 13px;
+  color: var(--f2-text-1);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.msg-time {
+  font-size: 11px;
+  color: var(--f2-text-3);
+  margin-top: 2px;
+}
+
+/* ================================================================
+ * 8. NavigationView 抽屉（订阅源）
+ * ================================================================ */
+.nav-drawer-scrim {
+  position: fixed;
+  inset: 0;
+  top: var(--app-topbar-height);
+  background: var(--f2-scrim);
+  z-index: 150;
+  animation: f2-fade-in var(--f2-dur-2) var(--f2-ease);
+}
+
+.nav-drawer {
+  position: fixed;
+  top: var(--app-topbar-height);
+  left: 0;
+  bottom: 0;
+  width: var(--app-drawer-width);
+  max-width: 92%;
+  background: var(--f2-bg-base);
+  border-right: 1px solid var(--f2-stroke);
+  box-shadow: var(--f2-shadow-flyout);
+  z-index: 151;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: f2-drawer-in var(--f2-dur-3) var(--f2-ease);
+}
+
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.feed-drawer-header {
+  padding: 16px 20px 8px;
+}
+
+.feed-drawer-header h1 {
+  font-family: var(--f2-font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+}
+
+.feed-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px 12px;
+}
+
+/* 导航项：36px 高、4px 圆角、选中项左侧强调条 */
+.feed-nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 36px;
+  border-radius: var(--f2-radius-sm);
+  color: var(--f2-text-1);
+  text-align: left;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+  margin-bottom: 2px;
+  position: relative;
+}
+
+.feed-nav-item:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.feed-nav-item.active {
+  background: var(--f2-fill-subtle-pressed);
+}
+
+/* Win11 NavigationView 选中指示条 */
+.feed-nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-accent-fg);
+}
+
+.feed-nav-item.active .feed-nav-icon .material-symbols-rounded {
+  color: var(--f2-accent-fg);
+}
+
+.feed-nav-icon {
+  flex-shrink: 0;
+  color: var(--f2-text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feed-nav-icon .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.feed-nav-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+/* 分组折叠头（抽屉内） */
+.feed-section {
+  margin: 2px 0;
+}
+
+.feed-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--f2-radius-sm);
+  color: var(--f2-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.feed-group-header:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.feed-group-chevron {
+  font-size: 16px;
+  transition: transform var(--f2-dur-1) var(--f2-ease);
+}
+
+.feed-group-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.feed-group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-group-count {
+  font-size: 11px;
+  color: var(--f2-text-3);
+}
+
+/* 分组内的订阅源行：缩进 */
+.feed-nav-item.indent {
+  padding-left: 40px;
+}
+
+/* 未读计数徽标：强调色胶囊 */
+.f2-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-accent-fg);
+  color: var(--f2-on-accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.feed-nav-item.active .f2-badge {
+  background: var(--f2-accent-fg);
+  color: var(--f2-on-accent-fg);
+}
+
+/* 收藏计数徽标（金色，与未读计数区分） */
+.f2-badge-star {
+  background: var(--f2-star);
+  color: #3d2e00;
+}
+
+/* ================================================================
+ * 9. ListView — 文章列表
+ * ================================================================ */
+.article-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.article-list-header {
+  padding: 16px 20px 12px;
+}
+
+.article-list-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+  margin-bottom: 4px;
+}
+
+.article-list-count {
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+.article-list-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--f2-text-2);
+  font-size: 14px;
+}
+
+.article-list-empty .material-symbols-rounded {
+  font-size: 48px;
+  color: var(--f2-text-3);
+  display: block;
+  margin-bottom: 12px;
+}
+
+.article-items {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 列表项：Subtle 状态层 */
+.article-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 20px;
+  text-align: left;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+  border: none;
+  background: transparent;
+}
+
+.article-item:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.article-item:active {
+  background: var(--f2-fill-subtle-pressed);
+}
+
+.article-item.active {
+  background: var(--f2-fill-subtle-pressed);
+}
+
+/* 未读圆点 */
+.article-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--f2-radius-pill);
+  flex-shrink: 0;
+  margin-top: 7px;
+  background: var(--f2-accent-fg);
+}
+
+.article-item.read .article-item-dot {
+  background: transparent;
+  border: 2px solid var(--f2-stroke-strong);
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+}
+
+.article-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.article-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--f2-text-1);
+}
+
+.article-item.read .article-item-title {
+  color: var(--f2-text-2);
+  font-weight: 400;
+}
+
+.article-star {
+  color: var(--f2-star);
+  margin-left: 4px;
+  font-size: 16px;
+}
+
+.article-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+.article-item-preview {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+/* 来源名称（仅「全部文章」视图显示） */
+.article-item-feed {
+  overflow: hidden;
+  max-width: 140px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 视图模式 ---- */
+
+/* 紧凑模式不显示来源 */
+.article-items.mode-compact .article-item-feed {
+  display: none;
+}
+
+/* 列表：更宽松的行距、两行摘要 */
+.article-items.mode-list .article-item {
+  padding: 14px 20px;
+}
+
+.article-items.mode-list .article-item-title {
+  font-size: 15px;
+}
+
+.article-items.mode-list .article-item-preview {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* 卡片：响应式多列网格，卡片 8px 圆角 + 描边，悬停浮起 */
+.article-items.mode-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+  padding: 12px 16px;
+  align-content: start;
+}
+
+.article-items.mode-card li {
+  display: flex;
+}
+
+.article-items.mode-card .article-item {
+  position: relative;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 14px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  background: var(--f2-bg-solid);
+  transition: box-shadow var(--f2-dur-1) var(--f2-ease), border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.article-items.mode-card .article-item:hover {
+  box-shadow: var(--f2-shadow-card);
+  border-color: var(--f2-stroke-strong);
+}
+
+.article-items.mode-card .article-item.active {
+  border-color: var(--f2-accent-fg);
+}
+
+/* 卡片内不显示圆点，未读改用左侧强调条 + 轻微底色（仅靠标题字重区分太弱） */
+.article-items.mode-card .article-item-dot {
+  display: none;
+}
+
+.article-items.mode-card .article-item.unread {
+  background: color-mix(in srgb, var(--f2-accent-fg) 4%, var(--f2-bg-solid));
+}
+
+.article-items.mode-card .article-item.unread::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  border-radius: var(--f2-radius-lg) 0 0 var(--f2-radius-lg);
+  background: var(--f2-accent-fg);
+}
+
+.article-items.mode-card .article-item-title {
+  font-size: 15px;
+}
+
+.article-items.mode-card .article-item-meta {
+  margin-top: 2px;
+}
+
+.article-items.mode-card .article-item-preview {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  margin-top: 6px;
+}
+
+/* ================================================================
+ * 10. 阅读视图
+ * ================================================================ */
+.reader-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--f2-text-2);
+  gap: 16px;
+}
+
+.reader-empty .material-symbols-rounded {
+  font-size: 64px;
+  color: var(--f2-text-3);
+}
+
+.reader-empty p {
+  font-size: 14px;
+}
+
+.article-view {
+  padding: 32px 48px;
+  max-width: var(--app-content-max-width);
+  margin: 0 auto;
+}
+
+.article-view-header {
+  margin-bottom: 20px;
+}
+
+.article-view-source {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--f2-accent-fg);
+  margin-bottom: 12px;
+}
+
+.article-view-header h1 {
+  font-family: var(--f2-font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 12px;
+  color: var(--f2-text-1);
+}
+
+.article-view-date {
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+/* 工具栏按钮组（标准按钮形态） */
+.article-view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--f2-stroke);
+  border-bottom: 1px solid var(--f2-stroke);
+  margin-bottom: 24px;
+}
+
+.article-view-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 14px;
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+  transition: background var(--f2-dur-1) var(--f2-ease), border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.article-view-toolbar button:hover:not(:disabled) {
+  background: var(--f2-fill-control-hover);
+}
+
+.article-view-toolbar button:active:not(:disabled) {
+  background: var(--f2-fill-control-pressed);
+  box-shadow: inset 0 -1px 0 var(--f2-stroke-input);
+}
+
+.article-view-toolbar button .material-symbols-rounded {
+  font-size: 16px;
+  color: var(--f2-text-2);
+}
+
+.article-view-content {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--f2-text-1);
+}
+
+.article-view-content h1,
+.article-view-content h2,
+.article-view-content h3 {
+  margin: 20px 0 10px;
+  font-weight: 600;
+}
+
+.article-view-content p {
+  margin-bottom: 14px;
+}
+
+.article-view-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--f2-radius-sm);
+}
+
+.article-view-content a {
+  color: var(--f2-accent-fg);
+  text-decoration: none;
+}
+
+.article-view-content a:hover {
+  text-decoration: underline;
+}
+
+.article-view-content pre,
+.article-view-content code {
+  font-family: var(--f2-font-mono);
+  background: var(--f2-bg-layer);
+  border: 1px solid var(--f2-stroke);
+  padding: 2px 6px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 13px;
+  color: var(--f2-text-1);
+}
+
+.article-view-content pre {
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.article-view-content blockquote {
+  border-left: 3px solid var(--f2-accent-fg);
+  margin: 12px 0;
+  padding: 4px 0 4px 16px;
+  color: var(--f2-text-2);
+  background: var(--f2-bg-layer);
+  border-radius: 0 var(--f2-radius-sm) var(--f2-radius-sm) 0;
+}
+
+.article-view-content ul,
+.article-view-content ol {
+  margin: 8px 0 14px;
+  padding-left: 24px;
+}
+
+/* 获取全文区域 */
+.article-fetch-full {
+  margin-top: 24px;
+  padding: 20px;
+  text-align: center;
+  border-top: 1px solid var(--f2-stroke);
+}
+
+.article-fetch-full button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.article-fetch-full .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.article-fetch-error {
+  font-size: 13px;
+  color: var(--f2-critical-fg);
+  margin-bottom: 8px;
+}
+
+/* ================================================================
+ * 11. 对话框（ContentDialog）
+ * ================================================================ */
+.modal-overlay {
+  position: fixed;
+  top: var(--app-topbar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--f2-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: f2-fade-in var(--f2-dur-2) var(--f2-ease);
+}
+
+/* 确认对话框（叠在设置面板之上） */
+.confirm-overlay {
+  z-index: 300;
+}
+
+.modal {
+  background: var(--f2-bg-flyout);
+  color: var(--f2-text-1);
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  box-shadow: var(--f2-shadow-dialog);
+  padding: 24px;
+  width: 420px;
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  animation: f2-dialog-in var(--f2-dur-3) var(--f2-ease);
+}
+
+.modal h2 {
+  font-family: var(--f2-font-display);
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--f2-text-1);
+  flex-shrink: 0;
+}
+
+.modal label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+  margin-bottom: 6px;
+}
+
+/* 确认对话框 */
+.confirm-modal {
+  width: 360px;
+  max-width: 90%;
+  text-align: center;
+}
+
+.confirm-modal h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 8px 0;
+  color: var(--f2-text-1);
+}
+
+.confirm-icon {
+  font-size: 40px;
+  color: var(--f2-critical-fg);
+}
+
+.confirm-text {
+  font-size: 14px;
+  color: var(--f2-text-2);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+/* 危险确认按钮：覆盖强调色变体（.modal 前缀保证优先级高于按钮变体） */
+.modal .f2-btn-accent.confirm-delete-btn,
+.modal .f2-btn-accent.confirm-delete-btn:hover:not(:disabled),
+.modal .f2-btn-accent.confirm-delete-btn:active:not(:disabled) {
+  background: var(--f2-critical);
+  color: var(--f2-on-critical);
+}
+
+.modal .f2-btn-accent.confirm-delete-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--f2-critical) 88%, #000);
+}
+
+.modal .f2-btn-accent.confirm-delete-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--f2-critical) 76%, #000);
+}
+
+.modal-error {
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+  padding: 8px 12px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+  flex-shrink: 0;
+}
+
+/* ================================================================
+ * 12. 按钮（Fluent 变体：accent / standard / soft / outline）
+ * ================================================================ */
+.f2-btn-accent,
+.f2-btn-standard,
+.f2-btn-soft,
+.f2-btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--f2-dur-1) var(--f2-ease), border-color var(--f2-dur-1) var(--f2-ease), color var(--f2-dur-1) var(--f2-ease);
+  white-space: nowrap;
+}
+
+.f2-btn-accent .material-symbols-rounded,
+.f2-btn-standard .material-symbols-rounded,
+.f2-btn-soft .material-symbols-rounded,
+.f2-btn-outline .material-symbols-rounded {
+  font-size: 16px;
+}
+
+/* Accent：强调色填充，白字 */
+.f2-btn-accent {
+  font-weight: 600;
+  color: var(--f2-on-accent);
+  background: var(--f2-accent);
+  border: 1px solid transparent;
+}
+
+.f2-btn-accent:hover:not(:disabled) {
+  background: var(--f2-accent-hover);
+}
+
+.f2-btn-accent:active:not(:disabled) {
+  background: var(--f2-accent-pressed);
+}
+
+/* Standard：默认按钮（控制填充 + 描边） */
+.f2-btn-standard {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+}
+
+.f2-btn-standard:hover:not(:disabled) {
+  background: var(--f2-fill-control-hover);
+}
+
+.f2-btn-standard:active:not(:disabled) {
+  background: var(--f2-fill-control-pressed);
+  box-shadow: inset 0 -1px 0 var(--f2-stroke-input);
+}
+
+/* Soft：强调色文本 + 淡染悬停（次要操作） */
+.f2-btn-soft {
+  color: var(--f2-accent-fg);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.f2-btn-soft:hover:not(:disabled) {
+  background: var(--f2-accent-soft);
+}
+
+.f2-btn-soft:active:not(:disabled) {
+  background: color-mix(in srgb, var(--f2-accent-fg) 16%, transparent);
+}
+
+/* Outline：与 Standard 同形态（保留类名语义） */
+.f2-btn-outline {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+}
+
+.f2-btn-outline:hover:not(:disabled) {
+  background: var(--f2-fill-control-hover);
+}
+
+.f2-btn-outline:active:not(:disabled) {
+  background: var(--f2-fill-control-pressed);
+}
+
+/* ================================================================
+ * 13. 输入控件（WinUI 文本框 / Select / Checkbox / Radio）
+ * ================================================================ */
+
+/* 文本框：聚焦为底部 2px 强调线（不改变布局） */
+.f2-text-field,
+.settings-text-input,
+.group-name-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--f2-stroke-input);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-bg-solid);
+  color: var(--f2-text-1);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--f2-dur-1) var(--f2-ease), box-shadow var(--f2-dur-1) var(--f2-ease);
+}
+
+.group-name-input {
+  height: auto;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+
+.f2-text-field:focus,
+.settings-text-input:focus,
+.group-name-input:focus {
+  border-color: var(--f2-accent-fg);
+  box-shadow: inset 0 -2px 0 var(--f2-accent-fg);
+}
+
+.f2-text-field::placeholder,
+.settings-text-input::placeholder,
+.group-name-input::placeholder {
+  color: var(--f2-text-3);
+}
+
+.f2-text-field:disabled,
+.settings-text-input:disabled {
+  opacity: 0.4;
+}
+
+/* Select */
+.settings-select {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--f2-stroke-input);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+  color: var(--f2-text-1);
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--f2-dur-1) var(--f2-ease), box-shadow var(--f2-dur-1) var(--f2-ease);
+}
+
+.settings-select:focus {
+  border-color: var(--f2-accent-fg);
+  box-shadow: inset 0 -2px 0 var(--f2-accent-fg);
+}
+
+/* 自定义 Checkbox：20px、4px 圆角、选中强调色填充 + 白色对勾 */
+.modal .settings-checkbox,
+.settings-checkbox,
+.modal .feed-checkbox,
+.feed-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  color: var(--f2-text-1);
+  line-height: 1;
+  margin: 0;
+}
+
+.modal .settings-checkbox input[type="checkbox"],
+.settings-checkbox input[type="checkbox"],
+.modal .feed-checkbox input[type="checkbox"],
+.feed-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--f2-stroke-input);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-bg-solid);
+  cursor: pointer;
+  flex-shrink: 0;
+  vertical-align: middle;
+  position: relative;
+  transition: background var(--f2-dur-1) var(--f2-ease), border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.modal .settings-checkbox input[type="checkbox"]:hover,
+.settings-checkbox input[type="checkbox"]:hover,
+.modal .feed-checkbox input[type="checkbox"]:hover,
+.feed-checkbox input[type="checkbox"]:hover {
+  border-color: var(--f2-text-3);
+}
+
+.modal .settings-checkbox input[type="checkbox"]:checked,
+.settings-checkbox input[type="checkbox"]:checked,
+.modal .feed-checkbox input[type="checkbox"]:checked,
+.feed-checkbox input[type="checkbox"]:checked,
+.modal .settings-checkbox input[type="checkbox"]:indeterminate,
+.settings-checkbox input[type="checkbox"]:indeterminate,
+.modal .feed-checkbox input[type="checkbox"]:indeterminate,
+.feed-checkbox input[type="checkbox"]:indeterminate {
+  background: var(--f2-accent-fg);
+  border-color: var(--f2-accent-fg);
+}
+
+/* 选中对勾（CSS 边框旋转绘制） */
+.modal .settings-checkbox input[type="checkbox"]:checked::after,
+.settings-checkbox input[type="checkbox"]:checked::after,
+.modal .feed-checkbox input[type="checkbox"]:checked::after,
+.feed-checkbox input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 7px;
+  height: 11px;
+  border-right: 2px solid var(--f2-on-accent-fg);
+  border-bottom: 2px solid var(--f2-on-accent-fg);
+  transform: rotate(45deg);
+}
+
+/* 半选短横线（全选框 indeterminate 态） */
+.modal .settings-checkbox input[type="checkbox"]:indeterminate::after,
+.settings-checkbox input[type="checkbox"]:indeterminate::after,
+.modal .feed-checkbox input[type="checkbox"]:indeterminate::after,
+.feed-checkbox input[type="checkbox"]:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 10px;
+  height: 2px;
+  border: none;
+  border-radius: 1px;
+  transform: none;
+  background: var(--f2-on-accent-fg);
+}
+
+/* 自定义 Radio：20px 圆、选中强调色圆点 */
+.modal .settings-option,
+.settings-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--f2-text-1);
+  line-height: 1;
+  margin: 0;
+}
+
+.modal .settings-option input[type="radio"],
+.modal .settings-option input[type="radio"],
+.settings-option input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--f2-stroke-input);
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-bg-solid);
+  cursor: pointer;
+  flex-shrink: 0;
+  vertical-align: middle;
+  position: relative;
+  transition: border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.modal .settings-option input[type="radio"]:hover,
+.settings-option input[type="radio"]:hover {
+  border-color: var(--f2-text-3);
+}
+
+.modal .settings-option input[type="radio"]::after,
+.settings-option input[type="radio"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-accent-fg);
+  transform: scale(0);
+  transition: transform var(--f2-dur-1) var(--f2-ease);
+}
+
+.modal .settings-option input[type="radio"]:checked,
+.settings-option input[type="radio"]:checked {
+  border-color: var(--f2-accent-fg);
+}
+
+.modal .settings-option input[type="radio"]:checked::after,
+.settings-option input[type="radio"]:checked::after {
+  transform: scale(1);
+}
+
+/* 滑杆 */
+.settings-field input[type="range"] {
+  flex: 1;
+  accent-color: var(--f2-accent-fg);
+  height: 24px;
+}
+
+/* ================================================================
+ * 14. 设置面板（ContentDialog + Pivot 标签）
+ * ================================================================ */
+.settings-modal {
+  width: 560px;
+  max-width: 92%;
+  height: 80vh;
+}
+
+/* 标签页：Fluent 下划线标签 */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--f2-stroke);
+  flex-shrink: 0;
+}
+
+.settings-tab {
+  padding: 9px 14px;
+  font-size: 14px;
+  color: var(--f2-text-2);
+  background: transparent;
+  border-radius: var(--f2-radius-sm) var(--f2-radius-sm) 0 0;
+  position: relative;
+  transition: color var(--f2-dur-1) var(--f2-ease), background var(--f2-dur-1) var(--f2-ease);
+}
+
+.settings-tab:hover {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-subtle-hover);
+}
+
+.settings-tab.active {
+  color: var(--f2-accent-fg);
+  font-weight: 600;
+}
+
+/* 选中标签底部 2px 强调线 */
+.settings-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--f2-accent-fg);
+}
+
+.settings-tab-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 设置卡片：与「分组与排序」分组框同一套结构（标题栏 + 内容区） */
+.settings-card {
+  --settings-card-pad-x: 16px;
+  --settings-card-pad-y: 12px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  background: var(--f2-bg-solid);
+  overflow: hidden;
+  padding: var(--settings-card-pad-y) var(--settings-card-pad-x);
+}
+
+/* 行式卡片：行自带上下内边距，卡片只留左右内边距 */
+.settings-card--rows {
+  --settings-card-pad-y: 0px;
+}
+
+/* 列表式卡片：与分组框内容区一致的内边距 */
+.settings-card--list {
+  --settings-card-pad-x: 8px;
+  --settings-card-pad-y: 8px;
+}
+
+/* 卡片标题栏：抵消卡片内边距实现通栏，与分组框组头一致 */
+.settings-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: calc(var(--settings-card-pad-y) * -1) calc(var(--settings-card-pad-x) * -1)
+    var(--settings-card-pad-y);
+  padding: 10px 12px;
+  background: var(--f2-bg-layer);
+  border-bottom: 1px solid var(--f2-stroke);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+}
+
+.settings-card--rows > .settings-field {
+  margin-bottom: 0;
+  padding: 12px 0;
+}
+
+.settings-card--rows > .settings-field + .settings-field {
+  border-top: 1px solid var(--f2-stroke);
+}
+
+/* 卡片内最后一项不叠加外边距 */
+.settings-card > :last-child {
+  margin-bottom: 0;
+}
+
+/* 设置行 */
+.settings-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.settings-field > label {
+  flex-shrink: 0;
+  width: 110px;
+  margin-bottom: 0;
+  font-weight: 400;
+  color: var(--f2-text-1);
+}
+
+.settings-value {
+  min-width: 48px;
+  text-align: right;
+  color: var(--f2-text-2);
+  font-size: 14px;
+}
+
+.settings-options {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+}
+
+/* 文本输入框（设置面板内，占满剩余宽度） */
+.settings-text-input {
+  flex: 1;
+  height: auto;
+  padding: 6px 10px;
+}
+
+/* 设置面板 Tab 内容容器 */
+.feeds-tab,
+.appearance-tab,
+.network-tab,
+.general-tab,
+.about-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 订阅源 URL 添加行 */
+.feed-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.feed-url-input {
+  flex: 1;
+}
+
+/* OPML 导入导出按钮组 */
+.opml-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* 导入进度 / 成功提示 */
+.import-progress {
+  font-size: 13px;
+  color: var(--f2-accent-fg);
+  padding: 8px 12px;
+  background: var(--f2-accent-soft);
+  border-radius: var(--f2-radius-sm);
+  margin-bottom: 4px;
+}
+
+.import-success {
+  font-size: 13px;
+  color: var(--f2-success-fg);
+  padding: 8px 12px;
+  background: var(--f2-success-soft);
+  border-radius: var(--f2-radius-sm);
+  margin-bottom: 4px;
+}
+
+.feed-flat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 选框工具栏 */
+.feed-check-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-check-count {
+  font-size: 12px;
+  color: var(--f2-accent-fg);
+}
+
+/* 删除选中：危险描边小按钮 */
+.feed-delete-selected {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--f2-critical-fg);
+  border-color: var(--f2-critical-fg);
+  background: transparent;
+}
+
+.feed-delete-selected:hover:not(:disabled) {
+  background: var(--f2-critical-soft);
+}
+
+.feed-delete-selected .material-symbols-rounded {
+  font-size: 14px;
+}
+
+/* 订阅源管理列表 */
+.feeds-manage-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feeds-manage-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  transition: background var(--f2-dur-1) var(--f2-ease), border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.feeds-manage-item:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.feeds-manage-item.checked {
+  background: var(--f2-accent-soft);
+  border-color: color-mix(in srgb, var(--f2-accent-fg) 40%, transparent);
+}
+
+.feeds-manage-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--f2-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+
+.feeds-manage-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 小型图标按钮（上移/下移） */
+.f2-mini-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--f2-radius-sm);
+  color: var(--f2-text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--f2-dur-1) var(--f2-ease), color var(--f2-dur-1) var(--f2-ease);
+  flex-shrink: 0;
+}
+
+.f2-mini-btn:hover:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+  color: var(--f2-text-1);
+}
+
+.f2-mini-btn .material-symbols-rounded {
+  font-size: 18px;
+}
+
+/* 分组下拉选择（行内小尺寸） */
+.feeds-manage-group-select {
+  padding: 4px 6px;
+  border-radius: var(--f2-radius-sm);
+  border: 1px solid var(--f2-stroke-input);
+  background: var(--f2-bg-solid);
+  color: var(--f2-text-1);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  max-width: 120px;
+  transition: border-color var(--f2-dur-1) var(--f2-ease), box-shadow var(--f2-dur-1) var(--f2-ease);
+}
+
+.feeds-manage-group-select:focus {
+  border-color: var(--f2-accent-fg);
+  box-shadow: inset 0 -2px 0 var(--f2-accent-fg);
+}
+
+/* 删除按钮：危险淡染悬停 */
+.feeds-manage-remove,
+.group-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--f2-text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--f2-radius-sm);
+  transition: background var(--f2-dur-1) var(--f2-ease), color var(--f2-dur-1) var(--f2-ease);
+  flex-shrink: 0;
+}
+
+.feeds-manage-remove:hover,
+.group-remove-btn:hover {
+  background: var(--f2-critical-soft);
+  color: var(--f2-critical-fg);
+}
+
+.feeds-manage-remove .material-symbols-rounded,
+.group-remove-btn .material-symbols-rounded {
+  font-size: 18px;
+}
+
+/* 分组卡片（分组与排序 tab） */
+.feed-group {
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  margin-bottom: 4px;
+  overflow: hidden;
+  background: var(--f2-bg-solid);
+}
+
+.feed-group .feed-group-header {
+  height: auto;
+  padding: 10px 12px;
+  border-radius: 0;
+  background: var(--f2-bg-layer);
+  border-bottom: 1px solid var(--f2-stroke);
+  cursor: default;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+}
+
+.feed-group .feed-group-header:hover {
+  background: var(--f2-bg-layer);
+}
+
+.group-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 分组标题中的计数徽标 */
+.feed-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--f2-radius-pill);
+  background: var(--f2-accent-soft);
+  color: var(--f2-accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.group-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.feed-group-body {
+  padding: 8px;
+}
+
+.group-name-input {
+  flex: 1;
+}
+
+/* 新建分组的强调色按钮 */
+.btn-add-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  background: var(--f2-accent);
+  color: var(--f2-on-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.btn-add-group .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.btn-add-group:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-add-group:not(:disabled):hover {
+  background: var(--f2-accent-hover);
+}
+
+.btn-add-group:not(:disabled):active {
+  background: var(--f2-accent-pressed);
+}
+
+.feeds-group-empty {
+  font-size: 12px;
+  color: var(--f2-text-2);
+  padding: 10px 12px;
+  text-align: center;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-bg-layer);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 单选编辑面板 */
+.feed-edit-panel {
+  margin-top: 8px;
+  padding: 16px;
+  border-radius: var(--f2-radius-lg);
+  background: var(--f2-bg-layer);
+  border: 1px solid var(--f2-stroke);
+}
+
+.feed-edit-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+  margin-bottom: 12px;
+}
+
+.feed-edit-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.feed-edit-field > label {
+  flex-shrink: 0;
+  width: 90px;
+  font-size: 13px;
+  color: var(--f2-text-2);
+  margin-bottom: 0;
+  font-weight: 400;
+}
+
+.feed-edit-field input,
+.feed-edit-field select {
+  flex: 1;
+}
+
+/* 订阅源所属分组标签 */
+.feed-group-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-subtle-hover);
+  border: 1px solid var(--f2-stroke);
+  color: var(--f2-text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 全选复选框 */
+.select-all {
+  align-self: center;
+}
+
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.settings-inline .settings-select {
+  flex: 1;
+}
+
+/* 表单辅助说明 */
+.settings-hint {
+  font-size: 12px;
+  color: var(--f2-text-3);
+  margin-top: -8px;
+}
+
+/* 表单内联反馈文本（校验 / 测试结果） */
+.form-text-success {
+  font-size: 13px;
+  color: var(--f2-success-fg);
+}
+
+.form-text-error {
+  font-size: 13px;
+  color: var(--f2-critical-fg);
+  word-break: break-all;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 关于 Tab */
+.about-tab {
+  align-items: center;
+  padding: 32px 0;
+  text-align: center;
+}
+
+.about-tab .about-app {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--f2-text-1);
+}
+
+.about-tab .about-version {
+  font-size: 12px;
+  color: var(--f2-text-2);
+  margin-top: 4px;
+}
+
+/* ================================================================
+ * 15. 通知横幅（Toast）
+ * ================================================================ */
+.error-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--f2-bg-flyout);
+  border: 1px solid var(--f2-stroke);
+  border-left: 3px solid var(--f2-critical-fg);
+  color: var(--f2-text-1);
+  padding: 12px 16px;
+  border-radius: var(--f2-radius-lg);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 100;
+  font-size: 14px;
+  max-width: 80%;
+  box-shadow: var(--f2-shadow-flyout);
+  animation: f2-dialog-in var(--f2-dur-2) var(--f2-ease);
+}
+
+.error-banner button {
+  color: var(--f2-accent-fg);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--f2-radius-sm);
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.error-banner button:hover {
+  background: var(--f2-fill-subtle-hover);
+}
+
+/* ================================================================
+ * 16. 动效关键帧
+ * ================================================================ */
+@keyframes f2-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes f2-flyout-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes f2-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes f2-drawer-in {
+  from { transform: translateX(-100%); }
+}
+
+/* 减弱动态效果：遵循系统无障碍设置 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

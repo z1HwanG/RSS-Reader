@@ -1,0 +1,34 @@
+[package]
+name = "rss-reader"
+version = "0.1.0"
+description = "RSS 桌面阅读器"
+authors = ["RSS Reader"]
+edition = "2021"
+
+[lib]
+name = "rss_reader_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "system-proxy", "gzip", "brotli", "deflate", "socks"] }
+feed-rs = "2"
+thiserror = "2"
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
