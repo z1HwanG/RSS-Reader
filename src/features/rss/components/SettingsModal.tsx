@@ -1094,72 +1094,95 @@ export function SettingsModal({
                 newspaper
               </span>
               <div className="about-app">RSS Reader</div>
-              <div className="about-version">版本 {pkg.version}</div>
+              <div className="about-version-block">
+                <div className="about-version-row">
+                  <span className="about-version">版本 {pkg.version}</span>
+                  <button
+                    type="button"
+                    className="about-check-btn"
+                    disabled={updatePhase === "checking" || updatePhase === "installing"}
+                    onClick={() => void handleCheckUpdate()}
+                  >
+                    <span className="material-symbols-rounded">refresh</span>
+                    {updatePhase === "checking" ? "检查中…" : "检查更新"}
+                  </button>
+                </div>
+                {updatePhase === "latest" && (
+                  <div className="about-update-hint">
+                    <span className="material-symbols-rounded update-icon-accent">check_circle</span>
+                    已是最新版本
+                  </div>
+                )}
+                {updatePhase === "error" && (
+                  <div className="about-update-hint about-update-hint-error">
+                    <span className="material-symbols-rounded">error</span>
+                    <span>检查更新失败：{updateError}</span>
+                  </div>
+                )}
+              </div>
               <div className="about-version" style={{ marginTop: "8px" }}>
                 Tauri 2 + React + Fluent 2
               </div>
 
-              {/* 更新检查与安装 */}
-              <div className="update-card">
-                {updatePhase === "available" && updateInfo ? (
-                  <>
-                    <div className="update-line">
-                      <span className="material-symbols-rounded update-icon-accent">new_releases</span>
-                      发现新版本 <strong>v{updateInfo.version}</strong>
-                      <span className="update-current">当前 v{updateInfo.currentVersion}</span>
-                    </div>
-                    {updateInfo.notes && <div className="update-notes">{updateInfo.notes}</div>}
-                    <button
-                      type="button"
-                      className="f2-btn-accent"
-                      onClick={() => void handleInstallUpdate()}
-                    >
-                      <span className="material-symbols-rounded">file_download</span>
-                      下载并安装
-                    </button>
-                  </>
-                ) : updatePhase === "installing" ? (
-                  <>
-                    <div className="update-line">正在下载更新…</div>
-                    <div className="update-progress">
-                      <div
-                        className={`update-progress-bar${updatePercent === null ? " indeterminate" : ""}`}
-                        style={updatePercent !== null ? { width: `${updatePercent}%` } : undefined}
-                      />
-                    </div>
-                    <div className="update-hint">
-                      {formatBytes(updateProgress?.downloaded ?? 0)}
-                      {updateProgress?.total ? ` / ${formatBytes(updateProgress.total)}` : ""}
-                      {updatePercent !== null ? `（${updatePercent}%）` : ""}
-                    </div>
-                    <div className="update-hint">下载完成后会启动安装程序并重启应用。</div>
-                  </>
-                ) : (
-                  <>
-                    {updatePhase === "latest" && (
-                      <div className="update-line">
-                        <span className="material-symbols-rounded update-icon-accent">check_circle</span>
-                        已是最新版本
-                      </div>
-                    )}
-                    {updatePhase === "error" && (
-                      <div className="update-line update-line-error">
-                        <span className="material-symbols-rounded">error</span>
-                        <span>检查更新失败：{updateError}</span>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="f2-btn-soft"
-                      disabled={updatePhase === "checking"}
-                      onClick={() => void handleCheckUpdate()}
-                    >
-                      <span className="material-symbols-rounded">refresh</span>
-                      {updatePhase === "checking" ? "正在检查…" : "检查更新"}
-                    </button>
-                  </>
-                )}
+              {/* 反馈入口：点击由全局链接守卫接管，改用系统浏览器打开 */}
+              <div className="about-links">
+                <a
+                  className="about-link"
+                  href="https://github.com/z1HwanG/RSS-Reader/issues"
+                  rel="noreferrer"
+                >
+                  <span className="material-symbols-rounded">open_in_new</span>
+                  报告问题（GitHub）
+                </a>
+                <a
+                  className="about-link"
+                  href="https://git.z1hwang.cn/Zeehow/RSS-Reader/issues"
+                  rel="noreferrer"
+                >
+                  <span className="material-symbols-rounded">open_in_new</span>
+                  报告问题（Forgejo）
+                </a>
               </div>
+
+              {/* 有可用更新或正在下载时才显示卡片 */}
+              {(updatePhase === "available" || updatePhase === "installing") && (
+                <div className="update-card">
+                  {updatePhase === "available" && updateInfo ? (
+                    <>
+                      <div className="update-line">
+                        <span className="material-symbols-rounded update-icon-accent">new_releases</span>
+                        发现新版本 <strong>v{updateInfo.version}</strong>
+                        <span className="update-current">当前 v{updateInfo.currentVersion}</span>
+                      </div>
+                      {updateInfo.notes && <div className="update-notes">{updateInfo.notes}</div>}
+                      <button
+                        type="button"
+                        className="f2-btn-accent"
+                        onClick={() => void handleInstallUpdate()}
+                      >
+                        <span className="material-symbols-rounded">file_download</span>
+                        下载并安装
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="update-line">正在下载更新…</div>
+                      <div className="update-progress">
+                        <div
+                          className={`update-progress-bar${updatePercent === null ? " indeterminate" : ""}`}
+                          style={updatePercent !== null ? { width: `${updatePercent}%` } : undefined}
+                        />
+                      </div>
+                      <div className="update-hint">
+                        {formatBytes(updateProgress?.downloaded ?? 0)}
+                        {updateProgress?.total ? ` / ${formatBytes(updateProgress.total)}` : ""}
+                        {updatePercent !== null ? `（${updatePercent}%）` : ""}
+                      </div>
+                      <div className="update-hint">下载完成后会启动安装程序并重启应用。</div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

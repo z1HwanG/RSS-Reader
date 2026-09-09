@@ -2432,6 +2432,96 @@ textarea:focus-visible {
   text-align: center;
 }
 
+/* 版本号 + 检查更新按钮 */
+.about-version-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.about-version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-check-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--f2-text-2);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-pill, 999px);
+  cursor: pointer;
+  transition: background var(--f2-dur-1, 0.1s) var(--f2-ease, ease);
+}
+
+.about-check-btn:hover:not(:disabled) {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control-hover);
+}
+
+.about-check-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.about-check-btn .material-symbols-rounded {
+  font-size: 14px;
+}
+
+.about-update-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--f2-text-2);
+}
+
+.about-update-hint .material-symbols-rounded {
+  font-size: 14px;
+}
+
+.about-update-hint-error {
+  max-width: 360px;
+  color: var(--f2-critical-fg);
+  text-align: left;
+  word-break: break-word;
+}
+
+/* 关于页的反馈入口 */
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  font-size: 13px;
+  color: var(--f2-accent-fg);
+  text-decoration: none;
+  border-radius: var(--f2-radius-sm, 4px);
+}
+
+.about-link:hover {
+  text-decoration: underline;
+}
+
+.about-link .material-symbols-rounded {
+  font-size: 16px;
+}
+
 .update-line .material-symbols-rounded {
   font-size: 18px;
 }

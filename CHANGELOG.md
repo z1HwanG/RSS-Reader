@@ -10,6 +10,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 
 ## [未发布] / Unreleased
 
+### 新增 / Added
+
+- 设置 → 关于 增加问题反馈入口（GitHub 与 Forgejo 的 Issues）。
+  Added issue-tracker links (GitHub and Forgejo) to Settings → About.
+
+### 变更 / Changed
+
+- 「检查更新」按钮移到版本号旁边，更新卡片仅在发现新版本或下载中时显示。
+  Moved the "check for updates" button next to the version number; the update card now only shows
+  when an update is available or a download is running.
+
 ## [0.2.0] - 2026-09-09
 
 ### 新增 / Added
