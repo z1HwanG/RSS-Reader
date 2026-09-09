@@ -4,8 +4,8 @@
 
 **轻量、跨平台的桌面 RSS 阅读器**
 
-基于 **Tauri 2** + **React 18** + **TypeScript** 构建，订阅源抓取与解析全部在 Rust 侧完成，
-前端只负责展示与交互，兼顾性能与安全。
+基于 **Tauri 2** + **React 18** + **TypeScript** 构建：订阅源抓取与解析全部在 Rust 侧完成，
+前端只负责展示与交互。订阅数据与阅读状态只保存在本机，不经过任何第三方服务器。
 
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
@@ -13,7 +13,7 @@
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-[中文](README_zh.md) | [English](README_en.md)
+[中文](README_zh.md) | [English](README.md)
 
 </div>
 
@@ -21,10 +21,12 @@
 
 ## 简介
 
-RSS Reader 是一款桌面端订阅阅读器，面向「订阅数量多、希望本地留存、不依赖云端服务」的使用场景。
-订阅数据与阅读状态全部保存在本机，不经过任何第三方服务器；网络请求只在抓取订阅源与文章图片时发生。
+RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务」的使用场景：网络请求只在抓取订阅源与
+文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
+深色 / 跟随系统主题。
 
-界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 / 深色 / 跟随系统主题。
+**项目状态**：`0.1.0`，早期开发阶段，暂未发布预编译安装包，需按下文从源码构建；
+功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 
 ## 功能特性
 
@@ -123,10 +125,33 @@ RSS-Reader/
 
 ## 环境要求
 
-- [Rust](https://www.rust-lang.org/tools/install) stable（建议 1.70+）
-- [Node.js](https://nodejs.org/) 18+
-- 各平台 WebView 运行时：Windows WebView2 / macOS WebKit / Linux WebKitGTK（Tauri 依赖）
-- 可选：[uv](https://docs.astral.sh/uv/) —— 仅在重新生成图标字体子集时需要
+- **Rust** stable，**1.77.2+**（Tauri 2 的最低版本要求；开发机实测 1.98）
+- **Node.js** 18+（实测 v24）
+- 各平台 WebView 运行时与构建工具：
+
+| 平台 | 需要安装 |
+|------|----------|
+| Windows | [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（勾选「使用 C++ 的桌面开发」）+ [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Windows 11 通常已内置） |
+| macOS | `xcode-select --install`（开发桌面应用无需完整 Xcode IDE） |
+| Linux | 见下方命令，以官方 [Prerequisites](https://v2.tauri.app/start/prerequisites/) 为准 |
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+# Fedora
+sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file \
+  libappindicator-gtk3-devel librsvg2-devel libxdo-devel
+sudo dnf group install "c-development"
+
+# Arch
+sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
+  appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+```
+
+可选：[uv](https://docs.astral.sh/uv/) —— 仅在重新生成图标字体子集时需要。
 
 ## 快速开始
 
@@ -148,8 +173,8 @@ npm run tauri build  # 打包当前平台安装包（Windows .msi/.exe、macOS .
 
 ### 图标字体子集化
 
-图标使用本地化的 Material Symbols Rounded 并已子集化：完整可变字体约 5.1 MB，
-项目只用到 41 个图标，子集后约 36 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
+图标使用本地化的 Material Symbols Rounded 并已子集化：完整可变字体约 5 MB，
+项目只用到 40 余个图标，子集后约 36 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
 
 新增图标后重新生成：
 
@@ -157,8 +182,16 @@ npm run tauri build  # 打包当前平台安装包（Windows .msi/.exe、macOS .
 node scripts/subset-icons.mjs   # 需要 uv 与网络（从 Google Fonts 取完整字体）
 ```
 
-脚本会下载完整字体、按内置图标清单子集化并校验连字可用性，直接写入
-`src/assets/fonts/material-symbols-rounded.woff2`。
+脚本会从源码提取图标清单、下载完整字体、按清单子集化，并用 HarfBuzz 逐个校验连字可用性，
+直接写入 `src/assets/fonts/material-symbols-rounded.woff2`。
+
+## 快捷键
+
+| 快捷键 | 作用 |
+|--------|------|
+| `Ctrl / Cmd + F` | 聚焦并全选搜索框 |
+| `Esc` | 清空搜索并退出输入框；关闭设置等弹窗 |
+| `Enter` | 确认分组重命名、添加订阅源、提交标题 / URL 编辑 |
 
 ## 架构说明
 
@@ -218,6 +251,31 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 
 状态文件带 `schema_version`，旧版本文件在读取时由 `migrate_state` 升级。
 
+## 常见问题
+
+**添加订阅源提示「返回的是网页而不是 RSS/Atom 订阅源」**
+填的是站点首页。订阅源地址通常以 `.xml`、`/feed`、`/atom.xml` 或 `/rss` 结尾，可先在浏览器里打开确认返回的是 XML。
+
+**文章里的图片显示不出来**
+图片统一经本地 `rssimg://` 协议抓取，失败时会自动补 `Referer` 重试，GitHub Pages 图片还会回退 jsdelivr 镜像。
+仍然失败通常是图床需要登录、按 IP 限流或返回了非图片内容；在设置里配置代理后重试往往有效。
+
+**图标显示成文字（例如 "search"）**
+图标字体是本地子集，源码里用到了清单外的图标名。运行 `node scripts/subset-icons.mjs` 重新生成子集（需要 uv 与网络）。
+
+**代理连通性测试失败**
+测试依次探测 `google` / `cloudflare` / `baidu`，任一成功即判定可用。全部失败时先确认 host / port 与类型
+（HTTP 还是 SOCKS5）；SOCKS5 走 `socks5h`，域名交由代理解析。
+
+**刷新很慢**
+抓取并发上限为 6，首次抓取需要下载并解析全部条目；之后命中 `ETag` / `Last-Modified` 的订阅源会直接跳过下载。
+
+**换电脑怎么迁移数据**
+设置 → 通用 → 备份导出 JSON，在新机器上还原；只需迁移订阅源时用 OPML 导入 / 导出。
+
+**Linux 上 `tauri dev` 报找不到 webkit2gtk**
+缺少系统依赖，按「环境要求」中对应发行版的命令安装后再试。
+
 ## 已知限制
 
 - **正文提取**：仅在 RSS 摘要过短时抓取原文全文，采用容器选择器启发式 + 无关元素移除，
@@ -225,6 +283,13 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 - **正文渲染**：为保留排版只做节点清理，不做完整的 HTML 白名单净化，仅适用于可信订阅源。
 - **平台构建**：`bundle.targets = all` 只打包当前平台的目标格式，跨平台安装包需在各自系统上构建。
 - **同步能力**：无云端同步，多设备之间需通过备份 / 还原或 OPML 手动迁移。
+
+## 贡献
+
+- 提交前确保 `npm run build`（TypeScript strict 检查 + Vite 构建）通过
+- 改动 Rust 代码建议先跑 `cargo fmt` 与 `cargo clippy --all-targets`
+- 新增图标后运行 `node scripts/subset-icons.mjs`，并把生成的字体文件一起提交
+- Issue / PR 请写清复现步骤与预期行为；界面问题附截图更省事
 
 ## 许可证
 

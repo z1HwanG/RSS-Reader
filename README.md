@@ -4,8 +4,9 @@
 
 **A lightweight, cross-platform desktop RSS reader**
 
-Built with **Tauri 2** + **React 18** + **TypeScript**. Feed fetching and parsing run entirely in
-Rust; the frontend only renders and handles interaction — fast and safe by design.
+Built with **Tauri 2** + **React 18** + **TypeScript**: feed fetching and parsing run entirely in
+Rust, while the frontend only renders and handles interaction. Subscriptions and reading state stay
+on your machine and never touch a third-party server.
 
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
@@ -13,7 +14,7 @@ Rust; the frontend only renders and handles interaction — fast and safe by des
 [![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-[中文](README_zh.md) | [English](README_en.md)
+[中文](README_zh.md) | [English](README.md)
 
 </div>
 
@@ -21,13 +22,14 @@ Rust; the frontend only renders and handles interaction — fast and safe by des
 
 ## Overview
 
-RSS Reader is a desktop feed reader for people with many subscriptions who want their data kept
-locally instead of in a cloud service. Subscriptions and reading state live on your machine and
-never touch a third-party server; network requests only happen when fetching feeds and article
-images.
+RSS Reader is for people with many subscriptions who want their data kept locally instead of in a
+cloud service: network requests only happen when fetching feeds and article images, and everything
+else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
+title bar, and supports light, dark and system themes.
 
-The UI follows the Fluent 2 visual language with a frameless custom title bar, and supports light,
-dark, and system themes.
+**Project status**: `0.1.0`, early development. No prebuilt installers are published yet — build
+from source as described below. Features and the persisted format (`schema_version` in
+`state.json`) may still change.
 
 ## Features
 
@@ -141,10 +143,33 @@ RSS-Reader/
 
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) stable (1.70+ recommended)
-- [Node.js](https://nodejs.org/) 18+
-- Platform WebView runtime: WebView2 on Windows, WebKit on macOS, WebKitGTK on Linux
-- Optional: [uv](https://docs.astral.sh/uv/) — only needed to regenerate the icon font subset
+- **Rust** stable, **1.77.2+** (Tauri 2's MSRV; the development machine runs 1.98)
+- **Node.js** 18+ (v24 tested)
+- Platform WebView runtime and build tools:
+
+| Platform | What to install |
+|----------|-----------------|
+| Windows | [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (select "Desktop development with C++") + [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (usually preinstalled on Windows 11) |
+| macOS | `xcode-select --install` (no full Xcode IDE needed for desktop development) |
+| Linux | See the commands below; the official [Prerequisites](https://v2.tauri.app/start/prerequisites/) page is authoritative |
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+# Fedora
+sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file \
+  libappindicator-gtk3-devel librsvg2-devel libxdo-devel
+sudo dnf group install "c-development"
+
+# Arch
+sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
+  appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+```
+
+Optional: [uv](https://docs.astral.sh/uv/) — only needed to regenerate the icon font subset.
 
 ## Getting started
 
@@ -167,8 +192,8 @@ Artifacts are written to `src-tauri/target/release/bundle/`.
 ### Icon font subsetting
 
 Icons use a local Material Symbols Rounded font, already subset: the full variable font is about
-5.1 MB, while this project uses 41 icons and ships a ~36 KB subset (keeping `rlig` ligatures and
-the `FILL` variable axis).
+5 MB, while this project uses a few dozen icons and ships a ~36 KB subset (keeping `rlig` ligatures
+and the `FILL` variable axis).
 
 After adding icons, regenerate it:
 
@@ -176,8 +201,17 @@ After adding icons, regenerate it:
 node scripts/subset-icons.mjs   # Requires uv and network access (full font from Google Fonts)
 ```
 
-The script downloads the full font, subsets it against the built-in icon list and verifies the
-ligatures, writing directly to `src/assets/fonts/material-symbols-rounded.woff2`.
+The script extracts the icon list from the source, downloads the full font, subsets it and verifies
+every ligature with HarfBuzz, writing directly to
+`src/assets/fonts/material-symbols-rounded.woff2`.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl / Cmd + F` | Focus and select the search box |
+| `Esc` | Clear the search box and leave it; close settings and other modals |
+| `Enter` | Confirm a group rename, add a feed, submit a title / URL edit |
 
 ## Architecture
 
@@ -240,6 +274,38 @@ Tauri derives `app_data_dir` from the `identifier`; the state file is `state.jso
 
 The state file carries a `schema_version`; older files are upgraded on read by `migrate_state`.
 
+## Troubleshooting
+
+**"Returned a web page instead of an RSS/Atom feed" when adding a feed**
+You entered the site's homepage. Feed URLs usually end in `.xml`, `/feed`, `/atom.xml` or `/rss`;
+open the URL in a browser first to confirm it returns XML.
+
+**Images in articles do not load**
+Images are fetched through the local `rssimg://` protocol; failures retry with a `Referer`, and
+GitHub Pages images fall back to the jsdelivr mirror. If they still fail, the image host likely
+requires a login, rate-limits by IP, or returned something that is not an image — configuring a
+proxy in Settings usually helps.
+
+**Icons render as text (e.g. "search")**
+The icon font is a local subset and the source uses an icon outside that list. Run
+`node scripts/subset-icons.mjs` to regenerate the subset (needs uv and network access).
+
+**The proxy connectivity test fails**
+The test probes `google` / `cloudflare` / `baidu` in order and passes if any succeeds. If all fail,
+check the host / port and the type (HTTP vs SOCKS5); SOCKS5 uses `socks5h`, so names are resolved by
+the proxy.
+
+**Refreshing is slow**
+Fetching is capped at 6 concurrent requests, and the first fetch downloads and parses every entry.
+Afterwards, feeds that answer with `ETag` / `Last-Modified` skip the download entirely.
+
+**How do I move my data to another machine?**
+Settings → General → Backup to export a JSON file, then restore it on the new machine. To move only
+subscriptions, use OPML import / export.
+
+**`tauri dev` fails with a missing webkit2gtk on Linux**
+A system dependency is missing; install it with the command for your distribution in Requirements.
+
 ## Known limitations
 
 - **Full-text extraction**: only triggered when a feed summary is too short. It relies on container
@@ -250,6 +316,13 @@ The state file carries a `schema_version`; older files are upgraded on read by `
 - **Platform builds**: `bundle.targets = all` only bundles targets for the host platform;
   cross-platform installers must be built on each OS.
 - **Sync**: no cloud sync; moving between devices requires backup / restore or OPML.
+
+## Contributing
+
+- Make sure `npm run build` (TypeScript strict check + Vite build) passes before submitting
+- For Rust changes, run `cargo fmt` and `cargo clippy --all-targets`
+- After adding icons, run `node scripts/subset-icons.mjs` and commit the generated font
+- In issues / PRs, include reproduction steps and expected behavior; a screenshot helps for UI issues
 
 ## License
 
