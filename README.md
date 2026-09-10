@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # RSS Reader
 
@@ -185,15 +185,25 @@ RSS-Reader/
 │   ├── assets/fonts/                # Subset icon font
 │   ├── features/rss/                # RSS domain
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
-│   │   │                            # AddFeedModal / SettingsModal
+│   │   │                            # ArticleMedia / AddFeedModal / SettingsModal / ShareMenu
 │   │   ├── services/rssService.ts   # Tauri IPC wrappers + debounced persistence
+│   │   ├── services/shareService.ts # Builds shareable text and runs share actions
 │   │   ├── services/updateService.ts# In-app updater wrapper (check / download / install)
 │   │   └── types.ts                 # Shared DTOs (aligned with Rust snake_case)
-│   └── lib/
+│   └── lib/                         # UI-free logic and browser capability wrappers
 │       ├── tauri.ts                 # Typed invoke wrapper
-│       ├── preferences.ts           # Theme / font size / interval / proxy (localStorage)
+│       ├── preferences.ts           # Theme / font size / interval / proxy / collapsed groups
 │       ├── linkGuard.ts             # Global <a> click guard → system browser
-│       └── contextMenuGuard.ts      # Suppresses the WebView default context menu
+│       ├── contextMenuGuard.ts      # Suppresses the WebView default context menu
+│       ├── contentRender.ts         # Body kind detection + rendering + bare-URL autolinking
+│       ├── articleExtract.ts        # Full-text extraction (block scoring), embeds, truncation
+│       ├── articleFilter.ts         # List filtering (feed / unread / starred / search)
+│       ├── articleDedupe.ts         # Cross-fetch dedupe and field merging
+│       ├── feedOrder.ts             # Feed and group ordering rules
+│       ├── fullContentCache.ts      # In-memory cache for fetched full texts
+│       ├── menuPosition.ts          # Clamps flyouts into the viewport (pure function)
+│       ├── useMenuPosition.ts       # React wrapper around the above
+│       └── scrollReset.ts           # Scroll reset when switching feed / article
 ├── src-tauri/                       # Rust backend
 │   ├── src/
 │   │   ├── main.rs                  # Desktop entry
@@ -206,6 +216,11 @@ RSS-Reader/
 │   ├── icons/                       # App icons (desktop and mobile)
 │   ├── Cargo.toml
 │   └── tauri.conf.json              # Tauri v2 configuration
+├── design/logo/                     # Icon vector sources and generator (edit colours / sizes here)
+│   ├── rss-reader.svg               # Icon version (plate + material layers, 1024×1024)
+│   ├── rss-reader-mono.svg          # Monochrome version (in-app / docs, transparent, currentColor)
+│   ├── gen.mjs                      # Parametric generator (geometry constants at the top)
+│   └── preview.png                  # Size × background comparison sheet
 ├── scripts/
 │   └── subset-icons.mjs             # Icon font subsetting (run after adding icons)
 ├── index.html

@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # RSS Reader
 
@@ -147,15 +147,25 @@ RSS-Reader/
 │   ├── assets/fonts/                # 子集化后的图标字体
 │   ├── features/rss/                # RSS 业务域
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
-│   │   │                            # AddFeedModal / SettingsModal
+│   │   │                            # ArticleMedia / AddFeedModal / SettingsModal / ShareMenu
 │   │   ├── services/rssService.ts   # Tauri IPC 封装 + 防抖落盘
+│   │   ├── services/shareService.ts # 分享文本构造与动作（复制 / 邮件 / 社交 / 存 Markdown）
 │   │   ├── services/updateService.ts# 应用内更新封装（检查 / 下载 / 安装）
 │   │   └── types.ts                 # 共享 DTO 类型（与 Rust snake_case 对齐）
-│   └── lib/
+│   └── lib/                         # 与 UI 无关的纯逻辑和浏览器能力封装
 │       ├── tauri.ts                 # 类型化 invoke 封装
-│       ├── preferences.ts           # 主题 / 字号 / 抓取频率 / 代理（localStorage）
-│       ├── linkGuard.ts             # 全局 <a> 点击守卫 → 系统浏览器
-│       └── contextMenuGuard.ts      # 屏蔽 WebView 默认右键菜单
+│       ├── preferences.ts           # 主题 / 字号 / 抓取频率 / 代理 / 分组折叠（localStorage）
+│       ├── linkGuard.ts             # 全局 <a> 点击守卫 → 系统浏览器（含相对地址解析）
+│       ├── contextMenuGuard.ts      # 屏蔽 WebView 默认右键菜单（输入框除外）
+│       ├── contentRender.ts         # 正文种类识别与渲染 + 裸链接自动链接化
+│       ├── articleExtract.ts        # 原文正文提取（块级评分）、视频嵌入与截断识别
+│       ├── articleFilter.ts         # 列表筛选（订阅源 / 未读 / 收藏 / 搜索）
+│       ├── articleDedupe.ts         # 跨次抓取去重与字段合并
+│       ├── feedOrder.ts             # 订阅源与分组的排序规则（含分组重排）
+│       ├── fullContentCache.ts      # 「获取全文」结果的内存缓存
+│       ├── menuPosition.ts          # 浮层按真实尺寸收边进视口（纯函数）
+│       ├── useMenuPosition.ts       # 上面那条的 React 封装
+│       └── scrollReset.ts           # 切换订阅源 / 文章时滚动归零
 ├── src-tauri/                       # Rust 后端
 │   ├── src/
 │   │   ├── main.rs                  # 桌面入口
@@ -168,6 +178,11 @@ RSS-Reader/
 │   ├── icons/                       # 应用图标（含桌面与移动端）
 │   ├── Cargo.toml
 │   └── tauri.conf.json              # Tauri v2 配置
+├── design/logo/                     # 应用图标的矢量源与生成脚本（改色 / 改尺寸从这里改）
+│   ├── rss-reader.svg               # 图标版（含底板与材质层，1024×1024）
+│   ├── rss-reader-mono.svg          # 单色版（界面内 / 文档用，透明底 currentColor）
+│   ├── gen.mjs                      # 参数化生成脚本（几何常量在文件头部）
+│   └── preview.png                  # 多尺寸 × 深浅背景对照图
 ├── scripts/
 │   └── subset-icons.mjs             # 图标字体子集化（新增图标后运行）
 ├── index.html
