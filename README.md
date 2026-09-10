@@ -209,9 +209,9 @@ Grab a build from Releases (both platforms carry the same files):
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.3.1_x64-setup.exe` | NSIS installer (recommended) |
-| `RSSReader_0.3.1_x64_en-US.msi` | MSI package |
-| `RSSReader_0.3.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
+| `RSSReader_0.3.2_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.3.2_x64_en-US.msi` | MSI package |
+| `RSSReader_0.3.2_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
 or Linux packages yet.
@@ -349,13 +349,13 @@ The state file carries a `schema_version`; older files are upgraded on read by `
 
    ```json
    {
-     "version": "0.3.1",
+     "version": "0.3.2",
      "notes": "release notes",
-     "pub_date": "2026-09-09T12:00:00Z",
+     "pub_date": "2026-09-10T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<contents of RSSReader_0.3.1_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.1/RSSReader_0.3.1_x64-setup.exe"
+         "signature": "<contents of RSSReader_0.3.2_x64-setup.exe.sig>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.2/RSSReader_0.3.2_x64-setup.exe"
        }
      }
    }

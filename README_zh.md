@@ -182,9 +182,9 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.3.1_x64-setup.exe` | NSIS 安装程序（推荐） |
-| `RSSReader_0.3.1_x64_en-US.msi` | MSI 安装包 |
-| `RSSReader_0.3.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+| `RSSReader_0.3.2_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.3.2_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.3.2_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
 
@@ -313,13 +313,13 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 
    ```json
    {
-     "version": "0.3.1",
+     "version": "0.3.2",
      "notes": "本次更新说明",
-     "pub_date": "2026-09-09T12:00:00Z",
+     "pub_date": "2026-09-10T12:00:00Z",
      "platforms": {
        "windows-x86_64": {
-         "signature": "<RSSReader_0.3.1_x64-setup.exe.sig 的内容>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.1/RSSReader_0.3.1_x64-setup.exe"
+         "signature": "<RSSReader_0.3.2_x64-setup.exe.sig 的内容>",
+         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.2/RSSReader_0.3.2_x64-setup.exe"
        }
      }
    }
