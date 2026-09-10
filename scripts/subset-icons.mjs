@@ -4,7 +4,7 @@
  * 描述: 重新生成图标字体子集（src/assets/fonts/material-symbols-rounded.woff2）。
  *
  * 完整 Material Symbols Rounded 约 5 MB，而项目只用到 40 余个图标；
- * 子集化后约 35 KB。新增图标后运行本脚本即可：
+ * 子集化后约 37 KB。新增图标后运行本脚本即可：
  *
  *   node scripts/subset-icons.mjs
  *

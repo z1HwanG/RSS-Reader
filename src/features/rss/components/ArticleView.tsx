@@ -82,8 +82,8 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
         "src",
         /^https?:\/\//i.test(resolved) ? toProxyImgSrc(resolved, baseUrl ?? undefined) : resolved,
       );
-      // 记录 https 原始地址：代理协议加载失败时可回退直连
-      if (/^https:\/\//i.test(resolved)) img.setAttribute("data-orig-src", resolved);
+      // 记录原始 http(s) 地址：代理协议加载失败时可回退直连
+      if (/^https?:\/\//i.test(resolved)) img.setAttribute("data-orig-src", resolved);
     } else {
       img.remove();
       return;
@@ -175,10 +175,11 @@ export function ArticleView({
     const onError = (event: Event): void => {
       const img = event.target as HTMLImageElement | null;
       if (!img || img.tagName !== "IMG") return;
-      // 第一层：代理协议失败 → 回退直连原始 https 地址
+      // 第一层：代理协议失败 → 回退直连原始 http(s) 地址
+      // （CSP 的 img-src 已放行 http: / https:，回退不会被拦）
       if (img.src.includes("rssimg")) {
         const original = img.dataset.origSrc;
-        if (original && original.startsWith("https://")) {
+        if (original && /^https?:\/\//i.test(original)) {
           img.src = original;
           return;
         }

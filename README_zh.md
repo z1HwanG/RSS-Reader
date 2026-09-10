@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.3.1`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.3.2`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
@@ -57,8 +57,8 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 
 - 文章图片统一经本地 `rssimg://` 协议加载，由 Rust 侧带浏览器 User-Agent 抓取，
   绕开防盗链 Referer 校验与 http 图片的混合内容拦截，成功响应缓存 7 天
-- 图片抓取带重试阶梯（先直连、遇 403 补 Referer 并记住该图床、失败再回退直连）；
-  GitHub Pages 图片额外回退 `cdn.jsdelivr.net` 镜像
+- 图片抓取带重试阶梯（先直连、遇 403 补 Referer 并记住该图床；配置了代理时，失败的主机再走直连重试一次，
+  但拿到 404 且存在 jsdelivr 候选时直接跳过直连）；GitHub Pages 图片额外回退 `cdn.jsdelivr.net` 镜像
 - 单张图片体积上限 50 MB，仅放行 `http` / `https` 图片
 - HTTP / SOCKS5 代理配置，含主机与端口格式校验、一键连通性测试（多探测目标，避免单站误报）
 - SOCKS5 使用 `socks5h`，域名交由代理解析，规避本地 DNS 污染
@@ -75,7 +75,9 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 高频操作（标记已读 / 收藏 / 排序）走 800 ms 防抖合并写盘，窗口隐藏或关闭前强制落盘
 - 支持整份状态的 JSON 备份 / 还原，以及按发布时间清理本地缓存文章（星标文章保留）
 - 抓取前校验 URL 协议（仅 `http` / `https`）；capabilities 采用最小权限
-- 外部链接统一走 opener 插件，前端无裸文件 / shell 访问权限
+- 外部链接统一走 opener 插件；权限模型未放行 `fs:` / `shell:`，前端自身无法触碰文件系统。
+  文件访问只经由四个窄接口：`backup_state`、`restore_state`、`read_file_text`（OPML 导入）、
+  `write_file_text`（OPML 导出），且应用只会把用户在系统对话框里选定的路径交给它们
 - 全局链接守卫：拦截 WebView 内所有 `<a>` 点击改用系统默认浏览器打开，避免应用 UI 被外部页面覆盖且无法返回；
   同时屏蔽 WebView 默认右键菜单（Back / Refresh / Save as / Print 等）；应用自绘的右键菜单不受影响，文本输入框内仍保留系统粘贴 / 复制菜单
 
@@ -96,7 +98,7 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 | 图标 | Material Symbols Rounded（本地子集化，约 37 KB） |
 | Feed 解析 | feed-rs 2（RSS 2.0/1.0、Atom、JSON Feed） |
 | HTTP | reqwest 0.12（rustls TLS、http2、gzip / brotli / deflate、system-proxy、socks） |
-| Tauri 插件 | @tauri-apps/plugin-opener、@tauri-apps/plugin-dialog |
+| Tauri 插件 | @tauri-apps/plugin-opener、@tauri-apps/plugin-dialog、@tauri-apps/plugin-updater、@tauri-apps/plugin-process |
 | 其他 | serde / serde_json、thiserror、sha2、hex、url、chrono、log |
 
 ## 项目结构
@@ -112,15 +114,18 @@ RSS-Reader/
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
 │   │   │                            # AddFeedModal / SettingsModal
 │   │   ├── services/rssService.ts   # Tauri IPC 封装 + 防抖落盘
+│   │   ├── services/updateService.ts# 应用内更新封装（检查 / 下载 / 安装）
 │   │   └── types.ts                 # 共享 DTO 类型（与 Rust snake_case 对齐）
 │   └── lib/
 │       ├── tauri.ts                 # 类型化 invoke 封装
 │       ├── preferences.ts           # 主题 / 字号 / 抓取频率 / 代理（localStorage）
-│       └── linkGuard.ts             # 全局 <a> 点击守卫 → 系统浏览器
+│       ├── linkGuard.ts             # 全局 <a> 点击守卫 → 系统浏览器
+│       └── contextMenuGuard.ts      # 屏蔽 WebView 默认右键菜单
 ├── src-tauri/                       # Rust 后端
 │   ├── src/
 │   │   ├── main.rs                  # 桌面入口
 │   │   ├── lib.rs                   # Builder 装配 + 命令注册 + rssimg 协议
+│   │   ├── deep_link.rs             # feed:// / rssreader:// 解析与分发
 │   │   └── commands/
 │   │       ├── mod.rs
 │   │       └── rss.rs               # 状态持久化、抓取解析、全文提取、代理、图片代理
@@ -132,7 +137,8 @@ RSS-Reader/
 │   └── subset-icons.mjs             # 图标字体子集化（新增图标后运行）
 ├── index.html
 ├── package.json
-└── tsconfig.json
+├── tsconfig.json
+└── vite.config.ts                   # Vite 开发服务器（固定 1420 端口）与构建配置
 ```
 
 ## 环境要求
@@ -177,10 +183,13 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 | 文件 | 说明 |
 |------|------|
 | `RSSReader_0.3.1_x64-setup.exe` | NSIS 安装程序（推荐） |
-| `RSSReader_0.1.1_x64_en-US.msi` | MSI 安装包 |
-| `RSSReader_0.1.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+| `RSSReader_0.3.1_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.3.1_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
+
+说明：`bundle.targets = "all"` 只打包当前平台的 MSI 与 NSIS 安装包，免安装单文件是另外单独产出的，
+不在默认 `tauri build` 产物里；若某个 Release 没带上表中的某个文件，请改用 NSIS 安装包或自行构建。
 
 ### 从源码运行
 
@@ -233,7 +242,8 @@ node scripts/subset-icons.mjs   # 需要 uv 与网络（从 Google Fonts 取完�
   `feed_id + entry 标识` 的哈希，保证跨次抓取稳定去重。
 - **图片代理协议**：`rssimg://` 由 Rust 侧注册的异步 URI scheme 处理，与 IPC 无关，
   因此没有命令参数上下文——应用代理配置通过 `update_proxy_setting` 同步到全局状态供其读取。
-- **安全默认**：capabilities 仅放行 `core:default`、窗口控制、`opener:default` 与 `dialog:default`；
+- **安全默认**：capabilities 仅放行 `core:default`、窗口控制、`opener:default`、`dialog:default`
+  以及应用内更新所需的 `updater:default` / `process:default`；
   CSP 限制脚本与资源来源；正文渲染前移除 `script` / `iframe` / `form` / `base` / `meta refresh` 等节点。
 
 ## Tauri 命令（IPC）
@@ -253,8 +263,12 @@ Rust 侧通过 `#[tauri::command]` 暴露以下命令，前端经
 | `write_file_text` | 写入文本到文件（OPML 导出） |
 | `test_proxy` | 通过指定代理请求探测地址，返回往返耗时 |
 | `update_proxy_setting` | 同步代理配置到 Rust 全局状态，供 `rssimg` 协议抓图使用 |
+| `take_pending_feed_link` | 取走（并清空）Rust 侧为冷启动暂存的深链地址 |
 
 此外，`rssimg://` 为自定义 URI scheme 协议（非 IPC 命令），用于文章图片的本地代理加载。
+
+事件：运行中的实例收到 `feed://` / `rssreader://` 深链时，Rust 侧会以归一化后的订阅地址
+发出 `feed-link` 事件（上表只列 IPC 命令，事件由后端主动推给前端）。
 
 ## 配置
 
@@ -299,7 +313,7 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 
    ```json
    {
-     "version": "0.2.0",
+     "version": "0.3.1",
      "notes": "本次更新说明",
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
@@ -310,6 +324,9 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
      }
    }
    ```
+
+   其中 `version`、安装包文件名与 URL 里的 tag 必须都是本次发布的版本号——
+   客户端会用 `version` 与当前运行的版本比较，低于当前版本的一律不接受。
 
    两个平台各自托管一份 `latest.json`：GitHub 的那份指向 GitHub 资源，Forgejo 的那份指向 Forgejo 资源，
    客户端按顺序尝试，前一个失败自动回退到下一个。

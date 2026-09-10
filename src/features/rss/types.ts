@@ -40,6 +40,12 @@ export interface Feed {
 export interface Article {
   /** 唯一 ID（源 ID + 条目 ID 的组合 hash） */
   id: string;
+  /**
+   * 生成 id 用的条目标识（Rust 侧 feed-rs 的 entry.id）。
+   * 订阅源 URL 变更后需要按新 feed_id 重算 id，靠它还原原始标识；
+   * 旧数据（schema_version < 2）缺该字段，退化按 link / title 匹配。
+   */
+  entry_key?: string | null;
   /** 所属订阅源 ID */
   feed_id: string;
   /** 标题 */
@@ -50,12 +56,22 @@ export interface Article {
   link: string | null;
   /** 发布日期（ISO 时间戳，可能为空） */
   published_at: string | null;
-  /** 作者 */
-  author: string | null;
   /** 是否已读 */
   read: boolean;
   /** 是否收藏 */
   starred: boolean;
+}
+
+/**
+ * 跨次抓取稳定去重的键：优先用 Rust 侧给的 entry 标识（与文章 id 同源），
+ * 旧数据没有 entry_key 时退化为原文链接；两者都缺时用「标题 + 发布时间」兜底。
+ * 返回 null 表示无法稳定识别（既无标识也无标题），此时不做去重。
+ */
+export function articleKey(article: Article): string | null {
+  if (article.entry_key) return `k:${article.entry_key}`;
+  if (article.link) return `l:${article.link}`;
+  if (article.title) return `t:${article.title}|${article.published_at ?? ""}`;
+  return null;
 }
 
 /** 应用状态（本地持久化） */

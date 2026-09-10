@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.3.1`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.3.2`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
@@ -69,9 +69,10 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 - Article images load through the local `rssimg://` protocol: Rust fetches them with a browser
   User-Agent, bypassing hotlink `Referer` checks and mixed-content blocking of `http` images;
   successful responses are cached for 7 days
-- Image fetching uses a retry ladder (direct first, add `Referer` on 403 and remember that host,
-  then fall back to a direct request); GitHub Pages images additionally fall back to the
-  `cdn.jsdelivr.net` mirror
+- Image fetching uses a retry ladder (direct first, add `Referer` on 403 and remember that host;
+  with a proxy configured, a failing host is then retried over a direct connection, except on a 404
+  that has jsdelivr candidates); GitHub Pages images additionally fall back to the `cdn.jsdelivr.net`
+  mirror
 - 50 MB per-image limit, only `http` / `https` images allowed
 - HTTP / SOCKS5 proxy with host and port validation plus a one-click connectivity test (multiple
   probe targets to avoid single-site false negatives)
@@ -93,7 +94,11 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
   kept)
 - URL schemes are validated before fetching (only `http` / `https`); capabilities follow least
   privilege
-- External links always go through the opener plugin; the frontend has no raw file or shell access
+- External links always go through the opener plugin; the permission model grants no `fs:` or
+  `shell:` access, so the frontend cannot touch files on its own. File access exists only through
+  four narrow commands — `backup_state`, `restore_state`, `read_file_text` (OPML import) and
+  `write_file_text` (OPML export) — and the app only ever passes them paths the user picked in a
+  native dialog
 - A global link guard intercepts every `<a>` click inside the WebView and opens it in the system
   browser instead, so the app UI can never be replaced by a foreign page; the WebView's default
   context menu (Back / Refresh / Save as / Print) is suppressed, while the app's own context menus
@@ -120,7 +125,7 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 | Icons | Material Symbols Rounded (locally subset, ~37 KB) |
 | Feed parsing | feed-rs 2 (RSS 2.0/1.0, Atom, JSON Feed) |
 | HTTP | reqwest 0.12 (rustls TLS, http2, gzip / brotli / deflate, system-proxy, socks) |
-| Tauri plugins | @tauri-apps/plugin-opener, @tauri-apps/plugin-dialog |
+| Tauri plugins | @tauri-apps/plugin-opener, @tauri-apps/plugin-dialog, @tauri-apps/plugin-updater, @tauri-apps/plugin-process |
 | Other | serde / serde_json, thiserror, sha2, hex, url, chrono, log |
 
 ## Project structure
@@ -136,15 +141,18 @@ RSS-Reader/
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
 │   │   │                            # AddFeedModal / SettingsModal
 │   │   ├── services/rssService.ts   # Tauri IPC wrappers + debounced persistence
+│   │   ├── services/updateService.ts# In-app updater wrapper (check / download / install)
 │   │   └── types.ts                 # Shared DTOs (aligned with Rust snake_case)
 │   └── lib/
 │       ├── tauri.ts                 # Typed invoke wrapper
 │       ├── preferences.ts           # Theme / font size / interval / proxy (localStorage)
-│       └── linkGuard.ts             # Global <a> click guard → system browser
+│       ├── linkGuard.ts             # Global <a> click guard → system browser
+│       └── contextMenuGuard.ts      # Suppresses the WebView default context menu
 ├── src-tauri/                       # Rust backend
 │   ├── src/
 │   │   ├── main.rs                  # Desktop entry
 │   │   ├── lib.rs                   # Builder wiring, command registration, rssimg scheme
+│   │   ├── deep_link.rs             # feed:// / rssreader:// parsing and dispatch
 │   │   └── commands/
 │   │       ├── mod.rs
 │   │       └── rss.rs               # Persistence, fetching/parsing, full text, proxy, images
@@ -156,7 +164,8 @@ RSS-Reader/
 │   └── subset-icons.mjs             # Icon font subsetting (run after adding icons)
 ├── index.html
 ├── package.json
-└── tsconfig.json
+├── tsconfig.json
+└── vite.config.ts                   # Vite dev server (fixed port 1420) and build config
 ```
 
 ## Requirements
@@ -201,11 +210,16 @@ Grab a build from Releases (both platforms carry the same files):
 | File | Notes |
 |------|-------|
 | `RSSReader_0.3.1_x64-setup.exe` | NSIS installer (recommended) |
-| `RSSReader_0.1.1_x64_en-US.msi` | MSI package |
-| `RSSReader_0.1.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
+| `RSSReader_0.3.1_x64_en-US.msi` | MSI package |
+| `RSSReader_0.3.1_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
 or Linux packages yet.
+
+Note: `bundle.targets = "all"` only builds the MSI and NSIS installers for the host platform; the
+portable single-file build is produced separately and is not part of the default `tauri build`
+output. If a release does not carry a file listed above, use the NSIS installer or build that
+variant yourself.
 
 ### Run from source
 
@@ -262,8 +276,9 @@ every ligature with HarfBuzz, writing directly to
 - **Image proxy scheme**: `rssimg://` is handled by an asynchronous URI scheme registered in Rust
   rather than by IPC, so it has no command argument context — the app proxy configuration is
   mirrored into global state via `update_proxy_setting` for it to read.
-- **Secure defaults**: capabilities allow only `core:default`, window controls, `opener:default` and
-  `dialog:default`; the CSP restricts scripts and resources; article HTML is stripped of `script`,
+- **Secure defaults**: capabilities allow only `core:default`, window controls, `opener:default`,
+  `dialog:default`, `updater:default` and `process:default` (the latter two only for the in-app
+  updater); the CSP restricts scripts and resources; article HTML is stripped of `script`,
   `iframe`, `form`, `base` and `meta refresh` nodes before rendering.
 
 ## Tauri commands (IPC)
@@ -283,8 +298,13 @@ the typed `call<T>()` helper in `src/features/rss/services/rssService.ts`:
 | `write_file_text` | Write text to a file (OPML export) |
 | `test_proxy` | Probe through a given proxy and return the round-trip latency |
 | `update_proxy_setting` | Mirror the proxy config into Rust global state for `rssimg` fetching |
+| `take_pending_feed_link` | Take (and clear) the deep-link URL buffered by Rust for cold starts |
 
 `rssimg://` is a custom URI scheme (not an IPC command) used for proxied article images.
+
+Events: the Rust side emits `feed-link` with the normalised feed URL when a running instance
+receives a `feed://` / `rssreader://` deep link (unlisted in the table above because it is pushed
+to the frontend rather than invoked).
 
 ## Configuration
 
@@ -329,7 +349,7 @@ The state file carries a `schema_version`; older files are upgraded on read by `
 
    ```json
    {
-     "version": "0.2.0",
+     "version": "0.3.1",
      "notes": "release notes",
      "pub_date": "2026-09-09T12:00:00Z",
      "platforms": {
@@ -340,6 +360,9 @@ The state file carries a `schema_version`; older files are upgraded on read by `
      }
    }
    ```
+
+   The `version`, the installer file name and the tag in the URL must all be the version you are
+   publishing — clients compare `version` against the running build and reject anything lower.
 
    Each host serves its own `latest.json`: the GitHub one points at GitHub assets and the Forgejo one
    at Forgejo assets; the client tries them in order and falls back automatically.

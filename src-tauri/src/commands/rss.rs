@@ -82,6 +82,11 @@ pub struct Feed {
 pub struct Article {
     /// 文章唯一 ID（feed_id + entry 标识的 sha256 前 16 字符）
     pub id: String,
+    /// 生成 id 用的 entry 标识（feed-rs 的 entry.id）。
+    /// 订阅源 URL 变更后 id 需要按新 feed_id 重算，没有它就无法回溯原始标识；
+    /// 旧数据缺该字段时为 None，前端退化为按链接 / 标题匹配。
+    #[serde(default)]
+    pub entry_key: Option<String>,
     /// 所属订阅源 ID
     pub feed_id: String,
     /// 文章标题
@@ -99,7 +104,8 @@ pub struct Article {
 }
 
 /// 当前状态文件结构版本；新增字段或改变语义时递增，并在 migrate_state 中处理旧版本
-pub const STATE_SCHEMA_VERSION: u32 = 1;
+/// v2 起 Article 增加 entry_key（旧文章缺省为 None，重算 id 时前端按链接 / 标题兜底）
+pub const STATE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppState {
@@ -170,7 +176,12 @@ fn state_file(app: &AppHandle) -> Result<PathBuf, CommandError> {
 
 /// 原子写入：先写同目录临时文件再改名，避免写入中途崩溃损坏状态文件
 fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> Result<(), CommandError> {
-    let tmp = path.with_extension("tmp");
+    // 临时文件名 = 原文件名 + ".tmp"。不能用 with_extension("tmp")：那会把扩展名替换掉，
+    // 使 backup.json 与 backup.opml 同时落到 backup.tmp 上互相覆盖。
+    let tmp = path.with_file_name(match path.file_name() {
+        Some(name) => format!("{}.tmp", name.to_string_lossy()),
+        None => return Err(CommandError::Path(format!("无效路径: {}", path.display()))),
+    });
     std::fs::write(&tmp, bytes).map_err(CommandError::Io)?;
     if let Err(rename_err) = std::fs::rename(&tmp, path) {
         // 个别文件系统在目标存在时拒绝覆盖：退化为先删后改名
@@ -317,13 +328,16 @@ fn cached_http_client(cache: &ClientCache, proxy: Option<&ProxyConfig>) -> Resul
     cached_client_with(cache, &proxy_signature(proxy), || build_http_client(proxy))
 }
 
-/// 复用直连客户端（图片抓取在代理链路失败时的兜底）
+/// 单次请求总超时（订阅源抓取与图片抓取共用，两条链路行为保持一致）
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// 直连客户端（图片抓取在代理链路失败时的兜底），超时与代理链路一致
 fn cached_direct_client(cache: &ClientCache) -> Result<Client, CommandError> {
     cached_client_with(cache, DIRECT_CLIENT_KEY, || {
         Client::builder()
             .user_agent(BROWSER_USER_AGENT)
             .no_proxy()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|e| CommandError::Network(root_cause_chain(&e)))
     })
@@ -334,7 +348,7 @@ fn build_http_client(proxy: Option<&ProxyConfig>) -> Result<Client, CommandError
     let mut client_builder = Client::builder()
         .user_agent(BROWSER_USER_AGENT)
         .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(std::time::Duration::from_secs(20));
+        .timeout(REQUEST_TIMEOUT);
 
     if let Some(cfg) = proxy {
         if cfg.enabled {
@@ -474,6 +488,7 @@ pub async fn fetch_feed(
 
         articles.push(Article {
             id: article_id,
+            entry_key: Some(entry_key.to_string()),
             feed_id: feed_id.clone(),
             title: entry.title.as_ref().map(|t| t.content.clone()),
             content,

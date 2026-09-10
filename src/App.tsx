@@ -13,7 +13,8 @@ import { TitleBar, type AppMessage } from "./features/rss/components/TitleBar";
 import { FeedList } from "./features/rss/components/FeedList";
 import * as rssService from "./features/rss/services/rssService";
 import * as updateService from "./features/rss/services/updateService";
-import type { AppState, Feed, FetchResult, Group } from "./features/rss/types";
+import type { AppState, Article, Feed, FetchResult, Group } from "./features/rss/types";
+import { articleKey } from "./features/rss/types";
 import { call } from "./lib/tauri";
 import {
   applyTheme,
@@ -54,6 +55,32 @@ async function shortHash(input: string): Promise<string> {
     .slice(0, 16);
 }
 
+/**
+ * 订阅源 URL 变更后重算该源下文章的 id：文章 id 是 feed_id + 条目标识的哈希，
+ * feed_id 变了而 id 不变，下次刷新就会把同一篇文章再插一遍（同时丢失已读 / 收藏）。
+ * 这里按新 feed_id 重算，并返回「旧 id → 新 id」映射供选中态一并跟随。
+ * entry_key 缺失（v2 之前的数据）时退化为链接 / 标题，仍匹配不上就保持原 id 不动。
+ */
+async function remapFeedArticles(
+  articles: Article[],
+  oldFeedId: string,
+  newFeedId: string,
+): Promise<{ articles: Article[]; idMap: Record<string, string> }> {
+  const idMap: Record<string, string> = {};
+  const next: Article[] = [];
+  for (const article of articles) {
+    if (article.feed_id !== oldFeedId) {
+      next.push(article);
+      continue;
+    }
+    const key = article.entry_key ?? article.link ?? article.title;
+    const id = key ? await shortHash(`${newFeedId}:${key}`) : article.id;
+    if (id !== article.id) idMap[article.id] = id;
+    next.push({ ...article, id, feed_id: newFeedId });
+  }
+  return { articles: next, idMap };
+}
+
 function App(): JSX.Element {
   // 应用状态
   const [state, setState] = useState<AppState>({ feeds: [], articles: [], groups: [] });
@@ -69,6 +96,8 @@ function App(): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 深链带来的订阅地址（非 null 时弹出添加对话框并预填）
   const [pendingFeedUrl, setPendingFeedUrl] = useState<string | null>(null);
+  // 状态载入完成前收到的深链地址（载入后重放，见 handleDeepLink）
+  const pendingDeepLinkRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   // 文章列表宽度（可拖拽调整，持久化）
   const [articleListWidth, setArticleListWidth] = useState<number>(() => {
@@ -200,6 +229,13 @@ function App(): JSX.Element {
   /** 深链地址：已订阅则定位到该源，否则弹添加对话框并预填 */
   const handleDeepLink = useCallback(
     (url: string) => {
+      // 初始状态尚未载入时无法判断是否已订阅（state 还是空数组），
+      // 直接处理会把已订阅的源误判为未订阅、弹出添加对话框。
+      // 先暂存，等 loadState 落地后由下面的 effect 重放一次。
+      if (loading) {
+        pendingDeepLinkRef.current = url;
+        return;
+      }
       const existing = stateRef.current.feeds.find((feed) => feed.url === url);
       if (existing) {
         setSelectedFeedId(existing.id);
@@ -209,8 +245,17 @@ function App(): JSX.Element {
       }
       setPendingFeedUrl(url);
     },
-    [addMessage],
+    [addMessage, loading],
   );
+
+  // 状态载入完成后重放暂存的深链（冷启动时深链与 loadState 是并发的，谁先到不确定）
+  useEffect(() => {
+    if (loading) return;
+    const url = pendingDeepLinkRef.current;
+    if (url === null) return;
+    pendingDeepLinkRef.current = null;
+    handleDeepLink(url);
+  }, [loading, handleDeepLink]);
 
   // 深链：冷启动取 Rust 侧暂存的地址（事件在 webview 加载前就发出了），运行中监听 feed-link
   useEffect(() => {
@@ -379,8 +424,21 @@ function App(): JSX.Element {
         feed.last_modified,
       );
       setState((prev) => {
-        const existingIds = new Set(prev.articles.map((a) => a.id));
-        const newArticles = result.articles.filter((a) => !existingIds.has(a.id));
+        // 按稳定标识去重：订阅源 URL 改过后，存量文章的 id 可能与本次抓取结果不同，
+        // 只比 id 会把同一篇文章再插一遍（列表出现重复、已读 / 收藏丢失）
+        const knownKeys = new Set<string>();
+        for (const a of prev.articles) {
+          const key = articleKey(a);
+          if (key !== null) knownKeys.add(key);
+        }
+        const newArticles = result.articles.filter((a) => {
+          const key = articleKey(a);
+          if (key !== null) {
+            if (knownKeys.has(key)) return false;
+            knownKeys.add(key);
+          }
+          return !prev.articles.some((existing) => existing.id === a.id);
+        });
         // 即使没有新文章也要回写 ETag / Last-Modified，供下次条件请求
         const title = result.not_modified ? feed.title : result.feed_title;
         const changed =
@@ -432,40 +490,55 @@ function App(): JSX.Element {
     handleSelectFeed(null);
   }, [updatePrefs, handleSelectFeed]);
 
-  /** 添加订阅源 */
+  /** 添加订阅源（重复订阅同一 URL 时视为刷新该源，不重复写入） */
   const handleAddFeed = useCallback(async (url: string) => {
-    try {
-      const result = await rssService.fetchFeed(url, buildProxyArg(prefs));
-      const now = new Date().toISOString();
-      const newFeed: Feed = {
-        id: result.feed_id,
-        url,
-        title: result.feed_title,
-        description: result.feed_description,
-        site_url: result.feed_site_url,
-        added_at: now,
-        group_id: null,
-        sort_order: 0,
-        open_method: null,
-        etag: result.etag,
-        last_modified: result.last_modified,
-      };
+    const result = await rssService.fetchFeed(url, buildProxyArg(prefs));
+    const now = new Date().toISOString();
+    const newFeed: Feed = {
+      id: result.feed_id,
+      url,
+      title: result.feed_title,
+      description: result.feed_description,
+      site_url: result.feed_site_url,
+      added_at: now,
+      group_id: null,
+      sort_order: 0,
+      open_method: null,
+      etag: result.etag,
+      last_modified: result.last_modified,
+    };
 
-      setState((prev) => {
-        const existingIds = new Set(prev.articles.map((a) => a.id));
-        const newArticles = result.articles.filter((a) => !existingIds.has(a.id));
-        const next: AppState = {
-          feeds: [newFeed, ...prev.feeds],
-          articles: [...prev.articles, ...newArticles],
-          groups: prev.groups,
-        };
-        rssService.saveStateDebounced(next);
-        return next;
+    setState((prev) => {
+      // 按稳定标识去重（与刷新一致）：同一源重复抓取不会插入重复文章
+      const knownKeys = new Set<string>();
+      for (const a of prev.articles) {
+        const key = articleKey(a);
+        if (key !== null) knownKeys.add(key);
+      }
+      const newArticles = result.articles.filter((a) => {
+        const key = articleKey(a);
+        if (key !== null) {
+          if (knownKeys.has(key)) return false;
+          knownKeys.add(key);
+        }
+        return !prev.articles.some((existing) => existing.id === a.id);
       });
-    } catch (err) {
-      throw err;
-    }
-  }, []);
+      const alreadySubscribed = prev.feeds.some((f) => f.id === newFeed.id);
+      const next: AppState = {
+        feeds: alreadySubscribed
+          ? prev.feeds.map((f) =>
+              f.id === newFeed.id
+                ? { ...f, title: newFeed.title, etag: newFeed.etag, last_modified: newFeed.last_modified }
+                : f,
+            )
+          : [newFeed, ...prev.feeds],
+        articles: [...prev.articles, ...newArticles],
+        groups: prev.groups,
+      };
+      rssService.saveStateDebounced(next);
+      return next;
+    });
+  }, [prefs]);
 
   /** 批量导入订阅源（仅写入 URL + 标题），随后只刷新本次新增的源 */
   const handleBatchImportFeeds = useCallback(async (items: { url: string; title?: string }[]) => {
@@ -545,24 +618,39 @@ function App(): JSX.Element {
     }
   }, [selectedFeedId]);
 
-  /** 更新订阅源属性（名称/URL/打开方式）；URL 变更时重算 ID */
+  /**
+   * 更新订阅源属性（名称 / URL / 打开方式）。
+   * URL 变更意味着订阅源身份变化：重算 feed id，并把该源的文章按新 id 重算，
+   * 清掉旧 URL 的 ETag / Last-Modified（对新 URL 无意义，否则会被服务端当成
+   * 「未变化」而误报无更新），后续刷新才能正常去重、保留已读与收藏。
+   */
   const handleUpdateFeed = useCallback(async (
     feedId: string,
     patch: Partial<Pick<Feed, "title" | "url" | "open_method">>,
   ) => {
-    let newId = feedId;
-    if (patch.url !== undefined && patch.url !== "") {
-      newId = await shortHash(patch.url);
-    }
+    const urlChanged = patch.url !== undefined && patch.url !== "";
+    const newId = urlChanged ? await shortHash(patch.url as string) : feedId;
+    // 重算在事件处理阶段完成：setState 的更新函数必须是纯函数（StrictMode 下会执行两次）
+    const remapped = urlChanged
+      ? await remapFeedArticles(stateRef.current.articles, feedId, newId)
+      : null;
+
     setState((prev) => {
       const next: AppState = {
         ...prev,
         feeds: prev.feeds.map((f) =>
-          f.id === feedId ? { ...f, ...patch, id: newId } : f,
+          f.id === feedId
+            ? {
+                ...f,
+                ...patch,
+                id: newId,
+                ...(urlChanged ? { etag: null, last_modified: null } : {}),
+              }
+            : f,
         ),
-        articles: prev.articles.map((a) =>
-          a.feed_id === feedId ? { ...a, feed_id: newId } : a,
-        ),
+        articles: remapped
+          ? remapped.articles
+          : prev.articles.map((a) => (a.feed_id === feedId ? { ...a, feed_id: newId } : a)),
       };
       rssService.saveStateDebounced(next);
       return next;
@@ -570,7 +658,10 @@ function App(): JSX.Element {
     if (selectedFeedId === feedId && newId !== feedId) {
       setSelectedFeedId(newId);
     }
-  }, [selectedFeedId]);
+    if (remapped) {
+      setSelectedArticleId((prev) => (prev ? remapped.idMap[prev] ?? prev : prev));
+    }
+  }, [selectedFeedId, state.articles]);
 
   /**
    * 刷新订阅源（缺省全部；可传入子集，如批量导入后只刷新新增源）。
@@ -633,7 +724,12 @@ function App(): JSX.Element {
     if (successes.length > 0) {
       // 一次性合并所有新文章 + 回写标题与 ETag / Last-Modified
       setState((prev) => {
-        const existingIds = new Set(prev.articles.map((a) => a.id));
+        // 与单源刷新同一套去重口径：先按稳定标识，再退回 id
+        const knownKeys = new Set<string>();
+        for (const a of prev.articles) {
+          const key = articleKey(a);
+          if (key !== null) knownKeys.add(key);
+        }
         const allNew: typeof prev.articles = [];
         const feedPatches = new Map<string, Partial<Feed>>();
         for (const { result } of successes) {
@@ -647,10 +743,12 @@ function App(): JSX.Element {
           }
           feedPatches.set(result.feed_id, patch);
           for (const a of result.articles) {
-            if (!existingIds.has(a.id)) {
-              existingIds.add(a.id);
-              allNew.push(a);
+            const key = articleKey(a);
+            if (key !== null) {
+              if (knownKeys.has(key)) continue;
+              knownKeys.add(key);
             }
+            allNew.push(a);
           }
         }
         const feeds = prev.feeds.map((f) => {
@@ -912,8 +1010,10 @@ function App(): JSX.Element {
     const query = searchQuery.trim().toLowerCase();
     const filtered = state.articles.filter((a) => {
       if (selectedFeedId && a.feed_id !== selectedFeedId) return false;
-      if (prefs.viewFilter === "unread") return !a.read;
-      if (prefs.viewFilter === "starred") return a.starred;
+      // 视图筛选与搜索是并列条件：任一不满足即过滤掉。
+      // （此前用早退写法，导致「未读 / 收藏」视图下搜索框输入被静默忽略）
+      if (prefs.viewFilter === "unread" && a.read) return false;
+      if (prefs.viewFilter === "starred" && !a.starred) return false;
       if (query && !(searchIndex.get(a.id) ?? "").includes(query)) return false;
       return true;
     });

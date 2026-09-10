@@ -61,7 +61,7 @@ export function AddFeedModal({ onClose, onAdd, initialUrl }: AddFeedModalProps):
           <span className="material-symbols-rounded modal-head-icon">rss_feed</span>
           <div>
             <h2 id="add-feed-title">添加订阅源</h2>
-            <p className="modal-subtitle">支持 RSS 2.0 / Atom / JSON Feed</p>
+            <p className="modal-subtitle">支持 RSS 2.0 / 1.0 / Atom / JSON Feed</p>
           </div>
         </div>
 

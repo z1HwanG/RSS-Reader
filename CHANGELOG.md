@@ -8,7 +8,63 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
-## [未发布] / Unreleased
+## [0.3.2] - 2026-09-10
+
+### 修复 / Fixed
+
+- 「未读 / 收藏」视图下搜索框输入被静默忽略：筛选与搜索此前写成二选一（先命中筛选就 return），
+  现在两者是并列条件，任一不满足才过滤。
+  Search input was silently ignored in the "unread" / "starred" views: the filter and the search used
+  to short-circuit each other; they are now independent conditions.
+- 修改订阅源 URL 后该源文章重复、且丢失已读 / 收藏：文章 ID 由 `feed_id + entry 标识` 哈希而来，
+  feed_id 变了 ID 却没变，下次刷新会把同一篇文章再插一遍并误报「无更新」。现在会按新 feed_id
+  重算文章 ID（`state.json` 新增 `entry_key` 字段用于回溯原始标识，`schema_version` 升至 2），
+  清掉旧 URL 的 ETag / Last-Modified，去重改为按稳定标识（entry_key → 链接 → 标题）匹配。
+  Duplicated articles and lost read / starred state after editing a feed URL: article IDs hash
+  `feed_id + entry id`, so a new feed id left the old IDs in place and the next refresh re-inserted
+  every article while reporting "no update". Articles are now re-keyed against the new feed_id
+  (`entry_key` added to `state.json`, `schema_version` bumped to 2), the stale ETag / Last-Modified
+  are cleared, and deduplication matches on a stable key (entry_key → link → title).
+- 冷启动深链可能与状态载入竞争：载入完成前 `state` 还是空的，已订阅的源会被误判为未订阅并弹出
+  添加对话框。现在载入完成前先暂存地址，载入后重放。
+  Cold-start deep links raced the state load: with an empty `state` an already-subscribed feed was
+  mistaken for a new one. The URL is now buffered until the load finishes and replayed afterwards.
+- 原子写盘的临时文件名会与其他备份文件冲突：`with_extension("tmp")` 会把扩展名整个替换掉，
+  使 `backup.json` 与 `backup.opml` 落到同一个 `backup.tmp`；改为在完整文件名后追加 `.tmp`。
+  The atomic-write temp file could collide with other backups: `with_extension("tmp")` replaced the
+  extension, so `backup.json` and `backup.opml` both landed on `backup.tmp`. The temp name is now the
+  full file name plus `.tmp`.
+- 图片协议加载失败后的直连回退只对 `https` 生效，`http` 图片被直接隐藏；现在 `http` 也会回退。
+  The direct fallback after a failed `rssimg` load only worked for `https` images; `http` images are
+  now retried as well.
+- 直连兜底客户端的超时（10 s）与代理链路（20 s）不一致，改为共用同一常量。
+  The direct-fallback HTTP client used a 10 s timeout while the proxied client used 20 s; both now
+  share one constant.
+- 应用内「支持格式」提示漏了 RSS 1.0（与 README、CHANGELOG 的表述不一致）。
+  The in-app supported-format hint omitted RSS 1.0, contradicting the README and CHANGELOG.
+
+### 变更 / Changed
+
+- 「添加订阅源」重复提交已订阅的 URL 时不再写入重复订阅源，改为更新该源。
+  Adding an already-subscribed URL no longer creates a duplicate feed; it updates the existing one.
+
+### 文档 / Documentation
+
+- 校正与代码不一致的文档：capabilities 漏列 `updater:default` / `process:default`、技术栈漏列
+  updater / process 插件、项目结构漏列 `deep_link.rs` / `updateService.ts` / `vite.config.ts`、
+  下载表中的 MSI 与免安装单文件版本号停留在 0.1.1、发布示例里 `latest.json` 的版本号是 0.2.0
+  （安装包名却是 0.3.1），以及博文里的 `0.2.1` 与「rename 失败后小睡重试」的描述。
+  Fixed documentation that disagreed with the code: the capability list omitted
+  `updater:default` / `process:default`, the tech-stack table omitted the updater / process plugins,
+  the project structure omitted `deep_link.rs` / `updateService.ts` / `vite.config.ts`, the download
+  table still listed 0.1.1 for the MSI and portable builds, the release example used 0.2.0 for
+  `latest.json` while the installer names said 0.3.1, and the blog post still said 0.2.1 and
+  described a sleep-and-retry that the atomic write does not perform.
+- 明确文件访问的实际边界（前端无 `fs:` / `shell:` 权限，文件访问仅经四个窄命令且路径来自用户选择）、
+  图片重试阶梯第 3 步仅在启用代理时生效、以及免安装单文件不在默认构建产物中。
+  Clarified the real file-access boundary (no `fs:` / `shell:` permission; four narrow commands taking
+  user-picked paths), that retry-ladder step 3 only runs with a proxy configured, and that the
+  portable build is not part of the default bundle output.
 
 ## [0.3.1] - 2026-09-09
 
@@ -126,7 +182,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.0...v0.2.1
