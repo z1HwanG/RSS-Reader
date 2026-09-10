@@ -9,6 +9,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] - 2026-09-11
+> **本次发布更换了更新签名密钥 / Signing key rotated**：旧密钥口令丢失、无法继续签名，
+> 因此 0.4.0 之前的版本**需要手动下载安装一次**（它们内置的是旧公钥，应用内更新会被拒绝），
+> 装上 0.4.0 之后自动更新恢复正常。
+> This release rotates the updater signing key: builds before 0.4.0 must be installed manually
+> once, after which in-app updates work again.
 
 ### 新增 / Added
 

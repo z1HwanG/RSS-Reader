@@ -56,7 +56,7 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlEMDE3MkRBN0RFRTQ2RjUKUldUMVJ1NTkybklCblNsNUUvWDBiM3hGMHZZRi9ScWJKdzFMNjQvd0dNYkhxWkU3MWJQd3BYUVEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENDRDMzQkQzQUZCQTg3QTgKUldTb2g3cXYwenZUekNEd2lwdVN3VjQvMzBCczk3Y20zY2dkbHlpZitBSHhFSlB6UUU2NEJSL3cK",
       "endpoints": [
         "https://github.com/z1HwanG/RSS-Reader/releases/latest/download/latest.json",
         "https://git.z1hwang.cn/Zeehow/RSS-Reader/releases/download/latest/latest.json"
