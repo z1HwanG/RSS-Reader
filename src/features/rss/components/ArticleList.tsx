@@ -6,6 +6,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEven
 import type { Article } from "../types";
 import type { ViewMode } from "../../../lib/preferences";
 import { useResetScrollOnChange } from "../../../lib/scrollReset";
+import { useMenuPosition } from "../../../lib/useMenuPosition";
+import { classifyMedia, type MediaKind } from "../../../lib/contentRender";
 
 interface ArticleListProps {
   articles: Article[];
@@ -50,7 +52,6 @@ interface ArticleCtxMenu {
   x: number;
   y: number;
 }
-
 /** 格式化日期为简洁显示（nowMs 按分钟传入，保持行组件 memo 有效） */
 function formatDate(iso: string | null, nowMs: number): string {
   if (!iso) return "";
@@ -72,6 +73,13 @@ function formatDate(iso: string | null, nowMs: number): string {
  * 已读 / 星标切换只会换数组引用，不改变 content，命中缓存即可跳过字符串处理。
  */
 const previewCache = new Map<string, { content: string; text: string }>();
+
+/** 清空预览文本缓存（设置里的「清理本地缓存」调用；缓存都在内存里，文章数据不动） */
+export function clearPreviewCache(): number {
+  const size = previewCache.size;
+  previewCache.clear();
+  return size;
+}
 
 /** 快速去除 HTML 标签（正则实现，避免每篇文章都构造 DOM 解析） */
 function stripHtmlFast(html: string): string {
@@ -95,10 +103,30 @@ interface ArticleRowProps {
   feedName: string;
   previewText: string;
   previewLen: number;
+  /** 是否展示缩略图（卡片视图） */
+  showThumb: boolean;
   /** 当前时间（分钟粒度），仅用于相对时间显示 */
   nowMs: number;
   onSelect: (articleId: string) => void;
   onContextMenu: (e: MouseEvent<HTMLButtonElement>, articleId: string) => void;
+}
+
+/** 列表缩略图是否启用（卡片视图才展示，紧凑 / 列表视图留给文字） */
+const THUMB_VIEW_MODES: readonly ViewMode[] = ["card"];
+
+/**
+ * 缩略图同样走本地 rssimg 代理协议：Rust 侧带浏览器 UA（+ 代理）抓取，
+ * 才能绕开防盗链 Referer 校验，与阅读视图里的图片走同一条链路。
+ * Windows / Android 上自定义协议以 http://<scheme>.localhost 暴露，其余平台用原生 scheme。
+ */
+const IMG_PROTOCOL_BASE = /Windows|Android/i.test(navigator.userAgent)
+  ? "http://rssimg.localhost"
+  : "rssimg://localhost";
+
+/** 把 http(s) 缩略图地址改写为本地代理地址（其余地址原样返回） */
+function toProxyThumb(url: string): string {
+  if (!/^https?:\/\//i.test(url)) return url;
+  return `${IMG_PROTOCOL_BASE}/?url=${encodeURIComponent(url)}`;
 }
 
 const ArticleRow = memo(function ArticleRow({
@@ -107,10 +135,26 @@ const ArticleRow = memo(function ArticleRow({
   feedName,
   previewText,
   previewLen,
+  showThumb,
   nowMs,
   onSelect,
   onContextMenu,
 }: ArticleRowProps): JSX.Element {
+  // 附件种类提示：图片 / 音频 / 视频 / 文档各取一个代表图标（最多 3 个）
+  const mediaKinds = new Set(
+    (article.media ?? []).map((item) => classifyMedia(item.content_type, item.url)),
+  );
+  const mediaIcons: { kind: MediaKind; icon: string; label: string }[] = [];
+  const KIND_HINT: { kind: MediaKind; icon: string; label: string }[] = [
+    { kind: "image", icon: "image", label: "含图片" },
+    { kind: "audio", icon: "graphic_eq", label: "含音频" },
+    { kind: "video", icon: "movie", label: "含视频" },
+    { kind: "document", icon: "description", label: "含文档" },
+  ];
+  for (const hint of KIND_HINT) {
+    if (mediaKinds.has(hint.kind) && mediaIcons.length < 3) mediaIcons.push(hint);
+  }
+
   return (
     <li>
       <button
@@ -121,6 +165,25 @@ const ArticleRow = memo(function ArticleRow({
         onContextMenu={(e) => onContextMenu(e, article.id)}
       >
         <span className="article-item-dot" aria-hidden="true" />
+        {showThumb && article.thumbnail && (
+          <img
+            className="article-item-thumb"
+            src={toProxyThumb(article.thumbnail)}
+            alt=""
+            loading="lazy"
+            data-orig-src={article.thumbnail}
+            // 代理链路失败时回退直连原地址，两条都不行再隐藏（避免留下破图）
+            onError={(e) => {
+              const img = e.currentTarget;
+              const original = img.dataset.origSrc;
+              if (original && img.src.includes("rssimg")) {
+                img.src = original;
+                return;
+              }
+              img.style.display = "none";
+            }}
+          />
+        )}
         <div className="article-item-body">
           <div className="article-item-title">
             {article.title || "（无标题）"}
@@ -136,6 +199,20 @@ const ArticleRow = memo(function ArticleRow({
           <div className="article-item-meta">
             {feedName && <span className="article-item-feed">{feedName}</span>}
             <span className="article-item-date">{formatDate(article.published_at, nowMs)}</span>
+            {article.author && (
+              <span className="article-item-author" title={article.author}>
+                {article.author}
+              </span>
+            )}
+            {mediaIcons.map((hint) => (
+              <span
+                key={hint.kind}
+                className="material-symbols-rounded article-item-media-icon"
+                title={hint.label}
+              >
+                {hint.icon}
+              </span>
+            ))}
           </div>
           {previewText && (
             <div className="article-item-preview">{previewText.slice(0, previewLen)}</div>
@@ -171,6 +248,8 @@ export function ArticleList({
   const [ctxMenu, setCtxMenu] = useState<ArticleCtxMenu | null>(null);
   // 分钟级时钟：行组件已 memo 化，不会随父组件重渲染自动刷新相对时间
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // 右键菜单按真实尺寸夹进视口（列表底部右键时不再被窗口下沿切掉）
+  const { ref: ctxMenuRef, position: ctxMenuPosition } = useMenuPosition<HTMLDivElement>(ctxMenu);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
@@ -186,14 +265,8 @@ export function ArticleList({
     (e: MouseEvent<HTMLButtonElement>, articleId: string): void => {
       e.preventDefault();
       e.stopPropagation();
-      // 靠近窗口边缘时向内收，避免菜单被裁剪
-      const MENU_W = 190;
-      const MENU_H = 250;
-      setCtxMenu({
-        articleId,
-        x: Math.min(e.clientX, window.innerWidth - MENU_W - 8),
-        y: Math.min(e.clientY, window.innerHeight - MENU_H - 8),
-      });
+      // 收边交给 useMenuPosition：菜单挂载后按真实尺寸夹进视口
+      setCtxMenu({ articleId, x: e.clientX, y: e.clientY });
     },
     [],
   );
@@ -219,6 +292,7 @@ export function ArticleList({
 
   // 不同视图模式的预览截断长度（卡片显示更长摘要，配合 CSS 行数钳制）
   const previewLen = viewMode === "compact" ? 80 : viewMode === "list" ? 120 : 220;
+  const showThumb = THUMB_VIEW_MODES.includes(viewMode);
 
   // 预览文本：内容未变的文章直接命中缓存，只处理新增 / 变更的文章
   const previews = useMemo(() => {
@@ -286,6 +360,7 @@ export function ArticleList({
               feedName={!currentFeedName ? feedTitles?.get(article.feed_id) ?? "" : ""}
               previewText={previews.get(article.id) ?? ""}
               previewLen={previewLen}
+              showThumb={showThumb}
               nowMs={nowMs}
               onSelect={onSelect}
               onContextMenu={handleContextMenu}
@@ -304,8 +379,9 @@ export function ArticleList({
       {/* 文章右键菜单 */}
       {ctxMenu && menuArticle && (
         <div
+          ref={ctxMenuRef}
           className="feed-ctx-menu article-ctx-menu"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          style={{ left: ctxMenuPosition.left, top: ctxMenuPosition.top }}
           onClick={(e) => e.stopPropagation()}
         >
           <button className="dropdown-item" onClick={() => runAction(onSelect)}>

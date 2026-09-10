@@ -16,7 +16,6 @@ export const VIEW_MODES: readonly ViewMode[] = ["compact", "list", "card"];
 
 /** 代理类型 */
 export type ProxyKind = "http" | "socks5";
-
 /** 代理配置 */
 export interface ProxyPrefs {
   enabled: boolean;
@@ -38,6 +37,9 @@ export interface Preferences {
 
 const STORAGE_KEY = "rss-reader-preferences";
 
+/** localStorage 键名（清理 WebView 缓存会连带清掉它，调用方需要先快照再写回） */
+export const PREFERENCES_STORAGE_KEY = STORAGE_KEY;
+
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   fontSize: 14,
@@ -47,9 +49,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   viewSort: "newest",
   viewMode: "compact",
 };
-
-/** 清理缓存可选的天数档位 */
-export const CLEANUP_DAY_OPTIONS: readonly number[] = [7, 30, 60, 90, 180, 365];
 
 /** 各档自动抓取频率对应的毫秒数；never 为 null（不自动抓取） */
 export const REFRESH_INTERVALS_MS: Record<RefreshFrequency, number | null> = {

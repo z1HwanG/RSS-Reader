@@ -54,14 +54,9 @@ export function flushPendingSave(): void {
   if (pending && pending !== lastSavedState) void saveState(pending).catch(() => {});
 }
 
-/** 抓取一个订阅源并解析；带上 ETag / Last-Modified 走条件请求，304 时直接跳过下载解析 */
-export function fetchFeed(
-  url: string,
-  proxy?: ProxyConfig,
-  etag?: string | null,
-  lastModified?: string | null,
-): Promise<FetchResult> {
-  return call<FetchResult>("fetch_feed", { url, proxy, etag, lastModified });
+/** 抓取一个订阅源并解析（全量抓取：不带条件请求头，服务端总会返回完整内容） */
+export function fetchFeed(url: string, proxy?: ProxyConfig): Promise<FetchResult> {
+  return call<FetchResult>("fetch_feed", { url, proxy });
 }
 
 /** 抓取文章原文 HTML（用于获取完整正文） */
@@ -92,6 +87,23 @@ export function writeFileText(targetPath: string, content: string): Promise<void
 /** 在系统默认浏览器中打开链接 */
 export function openExternal(url: string): Promise<void> {
   return openUrl(url);
+}
+
+/**
+ * 清理旧版本更新残留的临时目录（updater 解压出的安装包目录，插件故意不删）。
+ * 返回清掉的目录数；保留版本最新的一个，避免打断仍在进行的安装。
+ */
+export function cleanupOldUpdaterDirs(): Promise<number> {
+  return call<number>("cleanup_old_updater_dirs");
+}
+
+/**
+ * 清空 WebView 的浏览数据（磁盘上的文章图片缓存 + Code Cache 等）。
+ * 注意：它同时会清掉 WebView 的 localStorage，而界面偏好就存在那里
+ * （见 lib/preferences.ts）——调用方需要先取出偏好、清完再写回。
+ */
+export function clearWebviewCache(): Promise<void> {
+  return call<void>("clear_webview_cache");
 }
 
 /** 校验输入是否为合法 URL */

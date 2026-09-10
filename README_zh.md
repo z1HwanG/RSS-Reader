@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.3.4`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.4.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
@@ -40,7 +40,8 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
   位置（支持跨分组），或用每行的「置顶 / 置底」一步到底；组内顺序持久化，侧栏与列表都按它排列
 - OPML 批量导入 / 导出（导入后自动在后台并发刷新新增源）
 - 每个订阅源可单独设置「应用内阅读」或「外部浏览器打开」
-- 条件请求（`ETag` / `Last-Modified`）：订阅源未变化时服务端返回 304，跳过下载与解析
+- 刷新一律**全量抓取**：单源「刷新」与标题栏「刷新所有订阅源」走同一条路径，每次都重新下载并
+  解析整份订阅源（不带 `ETag` / `Last-Modified` 条件请求），结果不受本地数据状态影响
 - 一键刷新全部订阅源，抓取并发上限 6；自动抓取间隔可选 10 / 15 / 20 / 30 / 45 分钟或 1 小时
 - 深链订阅：注册 `feed://` 与 `rssreader://` 协议，浏览器里点链接（如 RSSHub Radar 的「本地阅读器」）
   即打开应用并预填订阅地址；已订阅的源直接定位过去
@@ -49,8 +50,15 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 
 - 两栏布局：左侧文章列表 + 右侧阅读视图，分隔条可拖拽调宽（宽度持久化）
 - 文章列表支持「全部 / 未读 / 收藏」筛选、「最新 / 最早 / 按订阅源」排序，以及紧凑 / 列表 / 卡片三种视图
-- 全文搜索：标题 + 正文（正文按纯文本索引，单篇截取 4096 字符控制内存）
-- RSS 摘要过短时一键抓取原文全文，正文容器启发式提取并清理广告 / 评论 / 侧栏等无关元素，最近 20 篇缓存复用
+- 正文按内容种类渲染：HTML / XHTML 原样排版，纯文本按空行分段（不再是挤成一坨），
+  Markdown 源渲染标题 / 列表 / 引用 / 代码块 / 表格，`data:` URI 内联图片直接显示，
+  Atom 的 `content src` 外链正文给出打开入口
+- 附件按种类展示：图片（网格缩略图 + 点击放大）、音频与视频（**内嵌原生播放器**，可直接播放 / 拖动进度）、
+  文档（图标 + 类型 / 体积 / 时长 + 打开入口）
+- 正文顶部展示作者 / 时间 / 预计阅读时长 / 附件数，标签以胶囊样式列出；正文无图时用订阅源缩略图作首图
+- 全文搜索：标题 + 正文 + 摘要 + 作者 + 标签（正文按纯文本索引，单篇截取 4096 字符控制内存）
+- RSS 摘要过短时一键抓取原文全文：按块级评分选正文容器（文字量 × (1 − 链接密度) + 段落与配图，
+  并剥离评论区与站点外壳），失败时区分「站点拦截 / 正文靠 JS 渲染 / 确实没抓到更多」并提示打开原文，最近 20 篇缓存复用
 - 收藏、未读 / 已读标记、一键全部标为已读，订阅源右键菜单可单源标记已读或刷新
 - 大列表分批渲染：首屏 300 篇，滚动到底自动加载更多
 - 在系统默认浏览器打开原文、复制文章链接
@@ -65,6 +73,22 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - HTTP / SOCKS5 代理配置，含主机与端口格式校验、一键连通性测试（多探测目标，避免单站误报）
 - SOCKS5 使用 `socks5h`，域名交由代理解析，规避本地 DNS 污染
 
+### 音视频播放
+
+- 附件里的音频 / 视频用原生播放器内嵌在阅读视图（`preload="metadata"`：不点播放只取元数据，不预下载文件），
+  视频用订阅源缩略图作封面；播放器旁边保留「浏览器打开」入口
+- CSP 里显式放行 `media-src`（`'self'` + `rssimg:` + `data:` + `blob:` + `https:` + `http:`）——
+  没有这条指令时 `default-src 'self'` 会拦掉跨站媒体，表现为播放器永不加载、无任何提示
+- 两种源播不了，会给出说明与浏览器入口而不是静默失败：YouTube / Vimeo 的条目只提供观看页地址
+  （Atom 源里拿不到直链），以及站点禁止内嵌（防盗链 / 需要登录）
+- **正文里的视频嵌入**（博客常整篇就是一条 Bilibili / YouTube 播放器）：就地渲染成 16:9 播放器，
+  CSP 用 `frame-src` 白名单（Bilibili / YouTube / Vimeo / 腾讯视频 / 优酷）放行，
+  iframe 加 `sandbox` 限制权限；附件区同时给出卡片（标题 / 平台 / 浏览器打开）
+- 订阅源完全没给正文时自动抓一次原文：抓到视频嵌入也算成功，因此「只有视频的博客文章」
+  打开就能直接看，不再提示「没有正文」
+- 媒体不走本地代理（代理协议是给图片用的、不支持 Range 请求，几十 MB 的音频全量抓取会卡住），
+  因此需要代理才能访问的媒体站点只能走「浏览器打开」
+
 ### 外观与偏好
 
 - 主题跟随系统 / 浅色 / 深色，阅读字号可调，设置即时生效
@@ -75,7 +99,9 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 
 - 订阅源与文章状态持久化在 Rust 侧（`app_data_dir/state.json`），写盘采用「临时文件 + 原子改名」，避免中途崩溃损坏文件
 - 高频操作（标记已读 / 收藏 / 排序）走 800 ms 防抖合并写盘，窗口隐藏或关闭前强制落盘
-- 支持整份状态的 JSON 备份 / 还原，以及按发布时间清理本地缓存文章（星标文章保留）
+- 支持整份状态的 JSON 备份 / 还原；设置里的「清理缓存」清两处缓存且**不删除任何文章**：
+  内存中的解析缓存（原文全文提取结果 / 列表预览 / 搜索索引）与 WebView 磁盘缓存
+  （文章图片经 `rssimg` 协议缓存 7 天，实测可累积到数百 MB）
 - 抓取前校验 URL 协议（仅 `http` / `https`）；capabilities 采用最小权限
 - 外部链接统一走 opener 插件；权限模型未放行 `fs:` / `shell:`，前端自身无法触碰文件系统。
   文件访问只经由四个窄接口：`backup_state`、`restore_state`、`read_file_text`（OPML 导入）、
@@ -184,14 +210,18 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.3.4_x64-setup.exe` | NSIS 安装程序（推荐） |
-| `RSSReader_0.3.4_x64_en-US.msi` | MSI 安装包 |
-| `RSSReader_0.3.4_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+| `RSSReader_0.4.0_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.4.0_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.4.0_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
 
 说明：`bundle.targets = "all"` 只打包当前平台的 MSI 与 NSIS 安装包，免安装单文件是另外单独产出的，
 不在默认 `tauri build` 产物里；若某个 Release 没带上表中的某个文件，请改用 NSIS 安装包或自行构建。
+
+NSIS 安装程序使用仓库内的自定义模板（`src-tauri/installer/installer.nsi`），比默认模板多一页
+「快捷方式选项」：可分别选择是否创建桌面快捷方式与开始菜单快捷方式（默认都创建）。
+静默 / 被动安装（`/S`、`/P`，应用内自动更新走被动模式）会跳过该页并按默认值创建两份快捷方式。
 
 ### 从源码运行
 
@@ -238,10 +268,14 @@ node scripts/subset-icons.mjs   # 需要 uv 与网络（从 Google Fonts 取完�
 - **状态权威在 Rust**：订阅源、文章与分组的增删改经 `load_state` / `save_state` 持久化到
   `app_data_dir/state.json`；前端 UI 偏好（主题、字号、抓取频率、代理、视图模式）属纯展示状态，
   存于 `localStorage`。
-- **抓取解析在 Rust 侧**：`fetch_feed` 使用浏览器风格 User-Agent，对 URL 做协议校验，
-  发送条件请求并在 304 时直接返回；解析失败且响应疑似 HTML 时给出「填了网页而非订阅源」的友好提示。
+- **抓取解析在 Rust 侧**：`fetch_feed` 使用浏览器风格 User-Agent，对 URL 做协议校验，每次全量抓取；
+  解析失败且响应疑似 HTML 时给出「填了网页而非订阅源」的友好提示。
 - **ID 生成**：订阅源 ID 取 URL 的 SHA-256 前 16 个十六进制字符；文章 ID 取
   `feed_id + entry 标识` 的哈希，保证跨次抓取稳定去重。
+- **内容种类识别**：`build_article` 记录正文的 `content_type`、作者、标签、缩略图与附件
+  （enclosure / MediaRSS / JSON Feed attachments / Atom 媒体链接），前端 `src/lib/contentRender.ts`
+  按种类分发渲染（HTML / 纯文本 / Markdown / 内联图片 / 外链正文），排版规则统一在 `styles.css` 的
+  `.article-view-content` 下。
 - **图片代理协议**：`rssimg://` 由 Rust 侧注册的异步 URI scheme 处理，与 IPC 无关，
   因此没有命令参数上下文——应用代理配置通过 `update_proxy_setting` 同步到全局状态供其读取。
 - **安全默认**：capabilities 仅放行 `core:default`、窗口控制、`opener:default`、`dialog:default`
@@ -257,7 +291,7 @@ Rust 侧通过 `#[tauri::command]` 暴露以下命令，前端经
 |------|------|
 | `load_state` | 从 `app_data_dir/state.json` 读取持久化状态（订阅源 / 文章 / 分组） |
 | `save_state` | 将当前状态原子写回 `state.json` |
-| `fetch_feed` | 抓取并解析订阅源，带 ETag / Last-Modified 条件请求 |
+| `fetch_feed` | 抓取并解析订阅源（全量抓取，不带条件请求） |
 | `fetch_article_html` | 抓取文章原文 HTML（摘要过短时获取全文） |
 | `backup_state` | 把当前状态导出为 JSON 到指定路径 |
 | `restore_state` | 从指定 JSON 文件读取完整状态 |
@@ -265,6 +299,7 @@ Rust 侧通过 `#[tauri::command]` 暴露以下命令，前端经
 | `write_file_text` | 写入文本到文件（OPML 导出） |
 | `test_proxy` | 通过指定代理请求探测地址，返回往返耗时 |
 | `update_proxy_setting` | 同步代理配置到 Rust 全局状态，供 `rssimg` 协议抓图使用 |
+| `clear_webview_cache` | 清空 WebView 浏览数据（文章图片磁盘缓存 / Code Cache；不动文章数据） |
 | `take_pending_feed_link` | 取走（并清空）Rust 侧为冷启动暂存的深链地址 |
 
 此外，`rssimg://` 为自定义 URI scheme 协议（非 IPC 命令），用于文章图片的本地代理加载。
@@ -296,7 +331,9 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 | macOS | `~/Library/Application Support/com.rssreader.app/state.json` |
 | Linux | `~/.local/share/com.rssreader.app/state.json` |
 
-状态文件带 `schema_version`，旧版本文件在读取时由 `migrate_state` 升级。
+状态文件带 `schema_version`，旧版本文件在读取时由 `migrate_state` 升级（当前为 4；旧记录缺少的
+内容类型 / 摘要 / 作者 / 标签 / 缩略图 / 附件字段按空值读取，渲染时仍按 HTML 正文处理；
+v4 起 `Feed` 不再保存 `etag` / `last_modified` / `peak_article_count`，旧值读取时被忽略）。
 
 ## 常见问题
 
@@ -315,7 +352,7 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 （HTTP 还是 SOCKS5）；SOCKS5 走 `socks5h`，域名交由代理解析。
 
 **刷新很慢**
-抓取并发上限为 6，首次抓取需要下载并解析全部条目；之后命中 `ETag` / `Last-Modified` 的订阅源会直接跳过下载。
+抓取并发上限为 6，每次刷新都是全量抓取：所有源都要重新下载并解析，不再有「订阅源未变化就跳过」的路径。
 
 **换电脑怎么迁移数据**
 设置 → 通用 → 备份导出 JSON，在新机器上还原；只需迁移订阅源时用 OPML 导入 / 导出。
@@ -325,8 +362,14 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 
 ## 已知限制
 
-- **正文提取**：仅在 RSS 摘要过短时抓取原文全文，采用容器选择器启发式 + 无关元素移除，
-  不同站点效果可能不一致；未引入 Readability 级别的评分算法。
+- **正文提取**：仅在 RSS 摘要过短（或正文是外链文件）时抓取原文全文。提取按块级评分选正文容器
+  （文字量 × (1 − 链接密度) + 段落与配图，并剥离评论区与站点外壳），仍不保证覆盖所有站点：
+  正文靠 JavaScript 渲染、或站点对非浏览器请求返回「安全检测」/ Cloudflare 校验页时抓不到内容，
+  此时界面会说明具体原因并提示改用「打开原文」。
+- **Markdown 渲染**：为「正文本身以 Markdown 发布」的源提供的兜底渲染，覆盖标题 / 列表 / 引用 /
+  代码块 / 表格 / 行内标记，不追求 CommonMark 完整实现（嵌套列表按一层渲染，HTML 块不解析）。
+- **音视频附件**：不内嵌播放器，播放交给系统浏览器打开（CSP 的 `default-src 'self'` 会拦下跨站媒体，
+  内嵌只会得到一个静默失败的播放器控件）。
 - **正文渲染**：为保留排版只做节点清理，不做完整的 HTML 白名单净化，仅适用于可信订阅源。
 - **平台构建**：`bundle.targets = all` 只打包当前平台的目标格式，跨平台安装包需在各自系统上构建。
 - **同步能力**：无云端同步，多设备之间需通过备份 / 还原或 OPML 手动迁移。

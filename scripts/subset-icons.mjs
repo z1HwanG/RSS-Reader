@@ -23,11 +23,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * 不是图标、但恰好是合法连字名的代码标识符（数据值 / CSS / HTML 标签名）。
+ * 不是图标、但恰好是合法连字名的代码标识符（数据值 / CSS / HTML 标签名 / 类型名）。
  * 自动提取时排除，避免把无关字形打进子集。
  */
 const NON_ICON_TOKENS = new Set([
   "feed", "http", "light", "list", "radio", "source", "tab", "title",
+  // 代码里出现的 CSS 属性 / HTML 标签 / TS 类型名，不是图标
+  "class", "height", "width", "style", "script", "iframe", "input", "select", "link",
+  "svg", "text", "image", "unknown", "document", "person", "merge",
 ]);
 
 /** 递归收集 src 下 .ts/.tsx 里的字符串字面量与 JSX 文本标识符 */

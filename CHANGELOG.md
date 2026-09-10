@@ -8,6 +8,139 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-11
+
+### 新增 / Added
+
+- **安装包支持选择快捷方式**：NSIS 安装程序新增一页「快捷方式选项」（位于「选择安装目录」之后），
+  可勾选「创建桌面快捷方式」与「创建开始菜单快捷方式」，默认都勾选。实现方式是把 Tauri 的
+  NSIS 模板复制进仓库（`src-tauri/installer/installer.nsi`）再加这个自定义页——
+  `bundle.windows.nsis.installerHooks` 只提供 4 个宏、加不了页面，而模板原本的行为是
+  开始菜单快捷方式无条件创建、桌面快捷方式只能等到最后完成页才勾。配套改动：未勾选桌面时
+  完成页那个同名勾选框不再生效；未勾选开始菜单时跳过创建并清掉旧安装留下的快捷方式；
+  静默 / 被动安装（`/S`、`/P`，自动更新走被动模式）跳过该页、按默认「创建」处理。
+  另外安装程序现在提供简体中文 / English 两种界面语言（`displayLanguageSelector`）。
+  The NSIS installer now has a shortcut-options page (desktop / Start menu checkboxes, both on by
+  default) via a vendored custom template; silent and passive installs skip it and keep the
+  previous behaviour.
+- **自动更新不再留下旧版本目录**：updater 解压安装包的临时目录是**故意保留**的
+  （安装包要在应用退出后才执行，提前删会打断安装），于是每升级一个版本就在 `%TEMP%` 里
+  永久留下一个 `RSSReader-<版本>-updater-<随机>`（约 3 MB），实测已积了 6 个。
+  现在应用启动时清理它们，但**保留版本号最新的一个**（避免打断仍在进行的安装）；
+  版本号解析失败、别的应用、无关目录一律不动（`cleanup_old_updater_dirs`，纯函数 + 4 个单测）。
+  Stale updater temp directories (`%TEMP%\RSSReader-<version>-updater-*`, ~3 MB each, kept on
+  purpose by the plugin) are now purged at startup, keeping the newest one.
+
+- **正文内容种类**：抓取时不再假定「正文一定是 HTML」，而是记录 `content_type` 并按种类渲染
+  （`src/lib/contentRender.ts` 纯函数 + `ArticleView` 分发）：
+  * `text/html` / `application/xhtml+xml`：原有渲染路径；
+  * `text/plain`（RSS 里很常见，feed-rs 也专门警告过）：按空行分段、段内保留换行，
+    不再把整篇挤成一坨（此前直接塞进 `innerHTML`，换行全丢）；
+  * `text/markdown`（部分博客发布 Markdown 原文，或纯文本里明显是 Markdown 语法）：
+    渲染标题 / 列表 / 引用 / 围栏代码块 / 表格 / 分割线 / 加粗斜体链接，
+    并挡掉 `javascript:` 之类的伪协议；正文里的 `#` 级标题降一级，避免与文章标题撞层级；
+  * `data:` URI 内联图片（Atom 允许 base64 内联图片）：直接作为图片显示，不再被当标记解析；
+  * Atom 的 `content src` 外链正文（`body` 缺失、正文在别的文件里）：README 式的打开入口 +
+    「获取全文」提示，而不是空白正文。
+  Content kinds are now recorded and rendered by type instead of assuming HTML.
+- **附件内容种类**：把 RSS `enclosure`、MediaRSS（`media:content` / `media:thumbnail`）、
+  JSON Feed `attachments` 与 Atom 媒体链接统一抓成 `media` 列表（URL / MIME / 标题 / 体积 /
+  时长 / 尺寸），按地址去重、与正文里已出现的图片合并展示；YouTube / Vimeo 的观看页链接
+  即使 MIME 是 `application/x-shockwave-flash` 这类历史值，也按视频归类。
+  RSS enclosures, MediaRSS, JSON Feed attachments and Atom media links are collected into a
+  deduplicated `media` list; YouTube / Vimeo watch links classify as video regardless of MIME.
+- **附件按种类展示**：图片（网格缩略图 + 点击放大）、音频与视频（原生播放器内嵌在阅读视图，
+  可直接播放 / 拖动进度）、文档（图标 + 类型 / 体积 / 时长 + 打开入口）。音视频用
+  `preload="metadata"`（不点播放只取元数据，不预下载整集），视频用订阅源缩略图作封面，
+  播放不了的两种情况——YouTube / Vimeo 观看页（Atom 源只给网页地址）、站点禁止内嵌
+  （防盗链 / 需要登录）——会给出说明与「浏览器打开」入口，而不是静默失败。
+  **CSP 新增 `media-src`**：此前只有 `default-src 'self'`，跨站媒体会被直接拦掉。
+  Audio / video attachments now play inline through native players (`media-src` added to the CSP;
+  watch pages and embedding-hostile sources fall back with an explanation).
+- **文章元信息**：新增作者（条目作者优先、缺失时退回订阅源作者）、标签 / 分类、摘要、
+  缩略图；阅读视图顶部展示作者 / 时间 / 预计阅读时长 / 附件数，标签以胶囊样式列出，
+  正文无图时用缩略图作首图；列表项显示作者与附件种类图标，卡片视图显示缩略图；
+  全文搜索范围扩到摘要 / 作者 / 标签。Author, tags, summary and thumbnail are extracted
+  (`#[serde(default)]`，旧数据缺省为空)；`state.json` 的 `schema_version` 升到 3。
+- **排版优化**：正文统一排版规则——标题层级与间距、图片 `loading=lazy` + 异步解码、
+  `<figure>/<figcaption>` 图注居中、代码块内部不换行（块自身横向滚动）、
+  表格窄屏内横向滚动、引用与列表的末段不留空、超长链接与中文混排不再溢出、
+  无 `src` 的 `<video>/<audio>` 占位节点直接移除。Reading typography overhaul across
+  headings, figures, code blocks, tables, quotes and long links.
+
+### 变更 / Changed
+
+- **标题栏窗口按钮与工具栏图标按钮统一形态**：最小化 / 最大化 / 关闭此前是 48px 宽、无圆角、
+  图标 16px（悬停只填一块方角底色），和旁边的工具栏图标按钮（36px、4px 圆角、20px 图标）摆在一起
+  比例与间距都对不上；「最大化」用的还是 `fullscreen`（四角括号）而不是 Windows 的方框。
+  现在三个按钮统一为 36px 方形 + 4px 圆角 + 20px 图标 + 4px 间距，悬停/按下与工具栏一致，
+  只有「关闭」保留系统一致的红色填充；最大化 / 还原改用 `crop_square` / `filter_none`，
+  并因方框字形在 em 框里占得更满而单独缩 1px 对齐视觉大小（实测三个字形 16.5–19px、
+  垂直中心完全对齐）。Window buttons now share the toolbar icon-button geometry
+  (36px square, 4px radius, 20px glyph) and use a proper square maximize glyph.
+- **刷新一律全量抓取**：单源「刷新」与标题栏「刷新所有订阅源」走同一条路径，每次都重新下载并
+  解析整份订阅源，不再发送 `If-None-Match` / `If-Modified-Since`，也没有「304 → 无更新」分支。
+  随之移除的是整套条件请求配套机制：`Feed` 的 `etag` / `last_modified` / `peak_article_count`
+  三个字段、纯函数模块 `src/lib/feedConditional.ts`（水位线取回判据）、以及 `fetch_feed` 的
+  `etag` / `last_modified` 参数与 `FetchResult` 的对应字段（`schema_version` 升到 4，旧值读取时忽略）。
+  代价是每次刷新都会完整下载：订阅源条目多时更慢、也更费流量。
+  Every refresh is now a full fetch (no conditional requests, no 304 branch); the watermark /
+  conditional-request machinery was removed with it.
+- **「清理缓存」改为「清理本地缓存」，不再删除文章**：文章是抓取结果，按时间删掉之后只能靠
+  重新抓取取回，而订阅源里可能已经没有那些旧条目了。现在这个按钮做两件事，都不碰文章：
+  ① 清内存里的解析缓存（原文全文提取结果、列表预览文本、搜索索引）；② 清 WebView 的磁盘缓存
+  ——文章图片经 `rssimg` 协议加载并在 WebView 里缓存 7 天，实测累积到 **274 MB（1229 个文件）**，
+  现在点一下能降到 1 MB 以内。新增 `clear_webview_cache` 命令（Rust 侧调
+  `Webview::clear_all_browsing_data`；Tauri 的内置 webview 插件模块是私有的，注册不进来）。
+  该 API 会连带清掉 WebView 的 localStorage，而界面偏好存在那里——所以前端调用前先快照偏好、
+  清完写回（`PREFERENCES_STORAGE_KEY` + `src/lib/fullContentCache.ts`）。
+  The cache button no longer deletes articles: it clears in-memory parse caches **and** the WebView
+  disk cache (cached article images, measured at 274 MB), snapshotting/restoring UI preferences
+  around the call.
+- 去重合并（`src/lib/articleDedupe.ts`）改为**正文取更长的一份**：旧记录可能只有摘要，
+  重新抓取到的全文不该被摘要在先出现而丢掉；新增字段（内容类型 / 摘要 / 作者 / 标签 / 缩略图 /
+  附件）按「先出现者优先、另一份补空缺」合并，附件按地址去重并取字段更全的一条。
+  Dedupe merging now keeps the longer body and merges the new fields.
+
+### 修复 / Fixed
+
+- **右键菜单贴窗口底部被切掉**（在订阅源抽屉里对靠下的源右键，「全部标为已读」那一项直接看不见）：
+  两个右键菜单此前各写各的边界处理——订阅源菜单**完全没收边**，文章菜单用写死的估算尺寸
+  （190×250）去减，菜单实际更高或更矮时都会漏。现在统一为「挂载后按真实尺寸夹进视口」：
+  新增纯函数 `src/lib/menuPosition.ts`（保留边距 + 顶部占位）与 hook
+  `src/lib/useMenuPosition.ts`（`useLayoutEffect` 在绘制前收敛，看不到跳动），两个菜单都改用它。
+  实测在 1100×750 窗口里贴底右键：菜单 628 → 742，完整落在视口内。
+  Right-click menus are now clamped into the viewport using their measured size — the feed menu had
+  no clamping at all, and the article menu used hard-coded estimates that could overflow.
+- **「获取全文」大面积失效**（提示「原文内容不够丰富，可能站点结构与提取器不兼容」）：
+  旧提取器只看 `article` / `main` / 几个固定类名，取不到就用整个 `<body>`，再把
+  `header` / `footer` 删掉——正文放在无语义 `div` 里、类名是 hash、侧栏与正文同层的站点
+  都会得到「侧栏 + 正文」或空内容。现在改为带评分的提取（`src/lib/articleExtract.ts`，纯函数）：
+  先按 MIME 之外的结构信号去噪（含**评论区**——评论块链接少、却常有数千字，靠链接密度筛不掉），
+  站点声明的语义容器达标就用它，否则在所有块级候选里按「文字量 × (1 − 链接密度) + 段落数 +
+  配图」评分选正文块，必要时上浮到父节点（正文常被拆在兄弟节点里）并剥离其中的外壳块。
+  在少数派 / 阮一峰周刊 / 云风 / Solidot / Daring Fireball / GitHub Blog 六个真实页面上，
+  提取结果都落在正文范围内（周刊页此前的 7585 字含整段评论区，现在正确收敛到 5479 字）。
+  The full-text extractor was rewritten from fixed selectors to scored container picking,
+  including comment-area stripping.
+- **失败原因说清楚**：抓不到正文时不再只报一句「不兼容」，而是区分三种情况给出可行动提示——
+  `36kr.com/p/...` 这类页面返回的其实是「安全检测」页、Cloudflare / reCAPTCHA 拦截页、
+  正文靠 JavaScript 渲染（HTML 里几乎没有文本），或者提取到的正文确实没比订阅源已给的多
+  （附上命中的容器名与两侧字数），并都提示可点「打开原文」。
+  Failure reasons are now distinguished (challenge page / JS-rendered / nothing longer found).
+- **正文里的视频嵌入被删掉**（用户博客那篇「测试」：订阅源没有正文，原文页整篇只有一条
+  Bilibili `<iframe>` 播放器，结果提示「提取到的正文（3 字）没有比订阅源已给的内容更多」）：
+  提取器的噪声选择器里包含 `iframe`，在识别嵌入之前就把播放器删了；而且正文没有文字时
+  评分选不中任何块，最终只拿到站点外壳的几十个字。现在：
+  ① `iframe` 不再当作噪声，改由嵌入识别统一处理——认得的平台（Bilibili / YouTube / Vimeo /
+  腾讯视频 / 优酷）抽成附件条目（含观看页、B 站封面的推导规则），其余广告 / 统计 iframe 才移除；
+  ② 正文里的嵌入就地渲染成 16:9 播放器（CSP 新增 `frame-src` 白名单 + `sandbox` 限制权限），
+  同时附件区也有一张卡片（标题 / 平台 / 浏览器打开）；
+  ③ 订阅源完全没给正文时自动抓一次原文（不再让用户为每篇手点），抓到嵌入即算成功。
+  Embedded video players (`<iframe>`: Bilibili / YouTube / …) are no longer stripped as noise:
+  they are extracted as media, rendered inline with a `frame-src` allow-list, and empty feeds
+  auto-fetch once.
+
 ## [0.3.4] - 2026-09-10
 
 ### 修复 / Fixed
@@ -428,7 +561,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.4...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...v0.3.2

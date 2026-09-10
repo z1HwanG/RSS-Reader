@@ -6,6 +6,7 @@
  */
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import type { Feed, Group } from "../types";
+import { useMenuPosition } from "../../../lib/useMenuPosition";
 
 interface FeedListProps {
   feeds: Feed[];
@@ -64,6 +65,8 @@ export function FeedList({
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   // 折叠的分组键集合（会话内状态，不持久化）
   const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  // 右键菜单按真实尺寸夹进视口：抽屉底部右键时不会被窗口下沿切掉
+  const { ref: ctxMenuRef, position: ctxMenuPosition } = useMenuPosition<HTMLDivElement>(ctxMenu);
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
 
   // 按分组组装区块：组内按 sort_order 排序，空分组不显示，未分组排最后
@@ -217,8 +220,9 @@ export function FeedList({
       {/* 右键上下文菜单 */}
       {ctxMenu && (
         <div
+          ref={ctxMenuRef}
           className="feed-ctx-menu"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          style={{ left: ctxMenuPosition.left, top: ctxMenuPosition.top }}
           onClick={(e) => e.stopPropagation()}
         >
           <button

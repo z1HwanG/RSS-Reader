@@ -10,7 +10,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { save as showSaveDialog, open as showOpenDialog } from "@tauri-apps/plugin-dialog";
 import {
   buildProxyUrl,
-  CLEANUP_DAY_OPTIONS,
   type RefreshFrequency,
   type ThemePreference,
   type ProxyPrefs,
@@ -65,10 +64,8 @@ interface SettingsModalProps {
   onAddGroup: (name: string) => void;
   onRenameGroup: (id: string, name: string) => void;
   onRemoveGroup: (id: string) => void;
-  /** 清理 N 天前的缓存文章，返回实际清理条数 */
-  onCleanupOldArticles: (days: number) => number;
-  /** 各档位下将清理的文章数（实时显示） */
-  cleanupCounts: Record<number, number>;
+  /** 清理本地缓存（内存里的全文提取结果 / 列表预览 / 搜索索引），返回清掉的条数；不删除文章 */
+  onClearLocalCache: () => number;
   onBackup: () => void;
   onRestore: () => void;
 }
@@ -232,13 +229,11 @@ export function SettingsModal({
   onAddGroup,
   onRenameGroup,
   onRemoveGroup,
-  onCleanupOldArticles,
-  cleanupCounts,
+  onClearLocalCache,
   onBackup,
   onRestore,
 }: SettingsModalProps): JSX.Element {
   const [tab, setTab] = useState<SettingsTab>("feeds");
-  const [cleanupDays, setCleanupDays] = useState(30);
   const [newGroupName, setNewGroupName] = useState("");
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
@@ -256,7 +251,6 @@ export function SettingsModal({
   const [editOpenMethod, setEditOpenMethod] = useState<string>("internal");
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
   // 清理缓存：待确认的档位 + 完成提示
-  const [confirmCleanupDays, setConfirmCleanupDays] = useState<number | null>(null);
   const [cleanupNotice, setCleanupNotice] = useState<string | null>(null);
 
   // 网络 tab 状态：端口草稿（允许输入中间态，仅合法值向上同步）+ 连接测试
@@ -407,10 +401,6 @@ export function SettingsModal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape") return;
-      if (confirmCleanupDays !== null) {
-        setConfirmCleanupDays(null);
-        return;
-      }
       if (confirmDeleteIds) {
         setConfirmDeleteIds(null);
         return;
@@ -419,7 +409,7 @@ export function SettingsModal({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [confirmCleanupDays, confirmDeleteIds, onClose]);
+  }, [confirmDeleteIds, onClose]);
 
   function getFeedsByGroup(groupId: string | null): Feed[] {
     return organizeFeeds.filter((f) => f.group_id === groupId);
@@ -988,17 +978,12 @@ export function SettingsModal({
     );
   }
 
-  /** 确认清理：执行并给出结果反馈 */
-  const handleConfirmCleanup = (): void => {
-    if (confirmCleanupDays === null) return;
-    const removed = onCleanupOldArticles(confirmCleanupDays);
-    setConfirmCleanupDays(null);
-    setCleanupNotice(removed > 0 ? `已清理 ${removed} 篇缓存文章` : "没有可清理的缓存");
+  /** 清理缓存：内存解析缓存 + WebView 磁盘缓存（图片缓存），不动文章数据 */
+  const handleClearLocalCache = (): void => {
+    const cleared = onClearLocalCache();
+    setCleanupNotice(cleared > 0 ? `已清理 ${cleared} 条解析缓存` : "解析缓存已经是空的");
     window.setTimeout(() => setCleanupNotice(null), 4000);
   };
-
-  // 当前档位将清理的文章数（按钮文案与禁用态用）
-  const cleanupCount = cleanupCounts[cleanupDays] ?? 0;
 
   // 网络 tab：代理配置校验（启用代理时展示错误并禁用测试按钮）
   const proxyHostErr = proxyHostError(proxy.host);
@@ -1469,32 +1454,13 @@ export function SettingsModal({
                   </select>
                 </div>
                 <div className="settings-field">
-                  <label htmlFor="cleanup-days">清理缓存</label>
+                  <label>缓存</label>
                   <div className="settings-inline">
-                    <select
-                      id="cleanup-days"
-                      className="settings-select"
-                      value={cleanupDays}
-                      onChange={(e) => setCleanupDays(Number(e.target.value))}
-                    >
-                      {CLEANUP_DAY_OPTIONS.map((d) => (
-                        <option key={d} value={d}>
-                          {d} 天前的缓存
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className="f2-btn-soft"
-                      onClick={() => setConfirmCleanupDays(cleanupDays)}
-                      disabled={cleanupCount === 0}
-                    >
-                      {cleanupCount > 0 ? `清理 ${cleanupCount} 篇` : "无可清理"}
+                    <button className="f2-btn-soft" onClick={handleClearLocalCache}>
+                      清理缓存
                     </button>
                   </div>
                 </div>
-              </div>
-              <div className="settings-hint">
-                按发布时间清理本地缓存的文章内容，星标文章不会被清理。
               </div>
               {cleanupNotice && <div className="import-success">{cleanupNotice}</div>}
               <div className="settings-card">
@@ -1615,36 +1581,6 @@ export function SettingsModal({
         </div>
 
       </div>
-
-      {/* 清理缓存确认对话框 */}
-      {confirmCleanupDays !== null && (
-        <div className="modal-overlay confirm-overlay" onClick={() => setConfirmCleanupDays(null)}>
-          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <span className="material-symbols-rounded confirm-icon">cleaning_services</span>
-            <h3>确认清理</h3>
-            <p className="confirm-text">
-              将清理 {cleanupCounts[confirmCleanupDays] ?? 0} 篇 {confirmCleanupDays} 天前的缓存文章，
-              星标文章会保留。此操作不可撤销。
-            </p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="f2-btn-standard"
-                onClick={() => setConfirmCleanupDays(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="f2-btn-accent confirm-delete-btn"
-                onClick={handleConfirmCleanup}
-              >
-                清理
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 删除确认对话框 */}
       {confirmDeleteIds && (

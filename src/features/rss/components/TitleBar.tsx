@@ -416,8 +416,10 @@ export function TitleBar({
             title={isMaximized ? "还原" : "最大化"}
             aria-label={isMaximized ? "还原" : "最大化"}
           >
-            <span className="material-symbols-rounded">
-              {isMaximized ? "fullscreen_exit" : "fullscreen"}
+            {/* 最大化 / 还原都是「方框」字形：在 em 框里比线条字形占得满，
+                CSS 里用 .glyph-box 缩 1px，让三个窗口图标的视觉大小一致 */}
+            <span className="material-symbols-rounded glyph-box">
+              {isMaximized ? "filter_none" : "crop_square"}
             </span>
           </button>
           <button

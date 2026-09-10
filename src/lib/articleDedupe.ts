@@ -15,7 +15,7 @@
  * （entry_key / 链接 / 标题+发布时间，最后兜 id），线索交叠即视为同一篇（并查集归组）。
  * 合并时保留先出现的那条的位置与字段，只从同组其它记录补空缺，已读 / 收藏取并集。
  */
-import { type Article } from "../features/rss/types";
+import { type Article, type MediaItem } from "../features/rss/types";
 
 /** 一篇文章登记的身份线索：任一线索与他人相同即视为同一篇 */
 function identityKeysOf(article: Article): string[] {
@@ -40,10 +40,69 @@ function mergeArticle(existing: Article, incoming: Article): Article {
     read: existing.read || incoming.read,
     starred: existing.starred || incoming.starred,
     published_at: existing.published_at ?? incoming.published_at,
-    content: existing.content ?? incoming.content,
+    // 正文取更长的一份：旧记录可能只有摘要，新抓到的才是全文
+    content: pickLongerContent(existing.content, incoming.content),
     title: existing.title ?? incoming.title,
     link: existing.link ?? incoming.link,
+    content_type: existing.content_type ?? incoming.content_type,
+    summary: existing.summary ?? incoming.summary,
+    author: existing.author ?? incoming.author,
+    categories: mergeList(existing.categories, incoming.categories),
+    thumbnail: existing.thumbnail ?? incoming.thumbnail,
+    media: mergeMedia(existing.media, incoming.media),
   };
+}
+
+/** 取更长的一份正文（长度按去标签后的纯文本算，两边都空则返回 null） */
+function pickLongerContent(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+): string | null {
+  if (!existing) return incoming ?? null;
+  if (!incoming) return existing;
+  const len = (html: string): number => html.replace(/<[^>]+>/g, "").trim().length;
+  return len(incoming) > len(existing) ? incoming : existing;
+}
+
+/** 字符串数组合并去重（保持现有顺序，新值追加在后） */
+function mergeList(
+  existing: string[] | undefined,
+  incoming: string[] | undefined,
+): string[] | undefined {
+  if (!existing || existing.length === 0) return incoming ?? existing;
+  if (!incoming || incoming.length === 0) return existing;
+  const merged = [...existing];
+  for (const item of incoming) {
+    if (!merged.includes(item)) merged.push(item);
+  }
+  return merged;
+}
+
+/** 附件数组合并：按地址去重，保留字段更全的一条 */
+function mergeMedia(
+  existing: MediaItem[] | undefined,
+  incoming: MediaItem[] | undefined,
+): MediaItem[] | undefined {
+  if (!existing || existing.length === 0) return incoming ?? existing;
+  if (!incoming || incoming.length === 0) return existing;
+  const byUrl = new Map<string, MediaItem>();
+  for (const item of [...existing, ...incoming]) {
+    const prev = byUrl.get(item.url);
+    if (!prev) {
+      byUrl.set(item.url, item);
+      continue;
+    }
+    byUrl.set(item.url, {
+      url: item.url,
+      content_type: prev.content_type ?? item.content_type,
+      title: prev.title ?? item.title,
+      size: prev.size ?? item.size,
+      duration_secs: prev.duration_secs ?? item.duration_secs,
+      width: prev.width ?? item.width,
+      height: prev.height ?? item.height,
+    });
+  }
+  return [...byUrl.values()];
 }
 
 /**

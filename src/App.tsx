@@ -15,11 +15,8 @@ import * as rssService from "./features/rss/services/rssService";
 import * as updateService from "./features/rss/services/updateService";
 import type { AppState, Article, Feed, FetchResult, Group } from "./features/rss/types";
 import { appendArticles, dedupeArticlesById } from "./lib/articleDedupe";
-import {
-  raisePeakAfterCleanup,
-  recordPeakCounts,
-  shouldRefetchInFull,
-} from "./lib/feedConditional";
+import { clearFullContentCache } from "./lib/fullContentCache";
+import { clearPreviewCache } from "./features/rss/components/ArticleList";
 import { filterArticles } from "./lib/articleFilter";
 import { reorderFeedsInGroup, type FeedMovePosition } from "./lib/feedOrder";
 import { useResetScrollOnChange } from "./lib/scrollReset";
@@ -28,9 +25,9 @@ import {
   applyTheme,
   buildProxyArg,
   buildProxyUrl,
-  CLEANUP_DAY_OPTIONS,
   listenSystemTheme,
   loadPreferences,
+  PREFERENCES_STORAGE_KEY,
   REFRESH_INTERVALS_MS,
   savePreferences,
   type Preferences,
@@ -45,34 +42,16 @@ function uid(): string {
 const SEARCH_TEXT_LIMIT = 4096;
 
 /**
- * 抓取一个订阅源；`recover` 为 true 时（单源「刷新」）处理「本地文章被清理过」的情况。
- *
- * 条件请求的前提是本地文章没被清过。文章被清理后条件请求头还在，服务端每次都回 304
- * 「无更新」，被清掉的文章永远取不回来——表现为「清理缓存后刷新取不回文章」。
- * 判据是水位线 `peak_article_count`（见 lib/feedConditional.ts）：本地篇数低于水位线，
- * 或本地一篇都没有，就丢掉 ETag / Last-Modified 重新完整抓一次；
- * 若仍然返回 304（服务端固执或代理缓存），按「无更新」处理，不去清空已有数据。
- *
- * 「刷新所有订阅源」`recover = false`：多源全量下载明显更慢，也会把已经清掉的旧文章
- * 整批拉回列表——取回只走单源刷新。
+ * 抓取一个订阅源。**所有刷新都是全量抓取**（不带 ETag / Last-Modified 条件请求）：
+ * 单源刷新与「刷新所有订阅源」走同一条路径，不会出现「本地文章被清理过就取不回来」的分歧，
+ * 也不再需要水位线判据；代价是每次刷新都会重新下载并解析整份订阅源。
  */
 async function fetchOneFeed(
   feed: Feed,
   proxy: Parameters<typeof rssService.fetchFeed>[1],
-  localArticleCount: number,
-  recover: boolean,
 ): Promise<{ result: FetchResult }> {
-  const result = await rssService.fetchFeed(
-    feed.url,
-    proxy,
-    feed.etag,
-    feed.last_modified,
-  );
-  if (!recover || !shouldRefetchInFull(result, feed, localArticleCount)) {
-    return { result };
-  }
-  const retry = await rssService.fetchFeed(feed.url, proxy, null, null);
-  return { result: retry.not_modified ? result : retry };
+  const result = await rssService.fetchFeed(feed.url, proxy);
+  return { result };
 }
 
 /** 搜索用去 HTML 标签（正则实现，避免大列表逐条 DOM 解析的开销） */
@@ -169,34 +148,20 @@ function App(): JSX.Element {
     setStarredViewTick({ v: next });
   }, []);
 
-  // 文章统计：分源未读数、总未读、收藏总数、各档位待清理数——一次遍历全部算出
+  // 文章统计：分源未读数、总未读、收藏总数——一次遍历全部算出
   const stats = useMemo(() => {
     const unreadCounts: Record<string, number> = {};
-    const cleanupCounts: Record<number, number> = {};
-    for (const days of CLEANUP_DAY_OPTIONS) cleanupCounts[days] = 0;
-    const now = Date.now();
     let unreadTotal = 0;
     let starredTotal = 0;
 
     for (const a of state.articles) {
-      if (a.read) {
-        // 已读：不计未读
-      } else {
+      if (!a.read) {
         unreadTotal += 1;
         unreadCounts[a.feed_id] = (unreadCounts[a.feed_id] ?? 0) + 1;
       }
       if (a.starred) starredTotal += 1;
-
-      // 待清理统计：星标保留、无发布时间无法判断年龄
-      if (a.starred || !a.published_at) continue;
-      const ts = Date.parse(a.published_at);
-      if (Number.isNaN(ts)) continue;
-      const ageDays = (now - ts) / 86400000;
-      for (const days of CLEANUP_DAY_OPTIONS) {
-        if (ageDays >= days) cleanupCounts[days] += 1;
-      }
     }
-    return { unreadCounts, unreadTotal, starredTotal, cleanupCounts };
+    return { unreadCounts, unreadTotal, starredTotal };
   }, [state.articles]);
 
   // 订阅源标题查找表：供排序、当前源名、阅读视图查找复用，避免重复 O(n) 查找
@@ -219,9 +184,15 @@ function App(): JSX.Element {
       live.add(a.id);
       let text = cache.get(a.id);
       if (text === undefined) {
-        text = ((a.title ?? "") + " " + stripHtmlForSearch(a.content ?? ""))
-          .slice(0, SEARCH_TEXT_LIMIT)
-          .toLowerCase();
+        // 检索范围：标题 + 去标签正文 + 摘要 + 作者 + 标签（正文种类不限，纯文本 / Markdown 原文也可命中）
+        const parts = [
+          a.title ?? "",
+          stripHtmlForSearch(a.content ?? ""),
+          a.summary ?? "",
+          a.author ?? "",
+          (a.categories ?? []).join(" "),
+        ];
+        text = parts.join(" ").slice(0, SEARCH_TEXT_LIMIT).toLowerCase();
         cache.set(a.id, text);
       }
       index.set(a.id, text);
@@ -279,6 +250,12 @@ function App(): JSX.Element {
   useEffect(() => {
     rssService.updateProxySetting(buildProxyArg(prefs)).catch(() => {});
   }, [prefs.proxy]);
+
+  // 启动时清一次旧版本更新残留：updater 解压安装包的临时目录是故意保留的
+  // （安装包要在应用退出后才执行），每升级一个版本会留下约 3 MB，久了会积一堆
+  useEffect(() => {
+    void rssService.cleanupOldUpdaterDirs().catch(() => {});
+  }, []);
 
   // 自动抓取定时器引用的刷新函数（稍后赋值）
   // 刷新入口引用：供自动抓取定时器与批量导入调用（可指定只刷新部分订阅源）
@@ -486,34 +463,22 @@ function App(): JSX.Element {
     });
   }, []);
 
-  /** 刷新单个订阅源（带 ETag / Last-Modified 条件请求） */
+  /** 刷新单个订阅源（全量抓取，与「刷新所有订阅源」同一条路径） */
   const handleRefreshFeed = useCallback(async (feedId: string) => {
     const feed = state.feeds.find((f) => f.id === feedId);
     if (!feed) return;
     try {
-      const localCount = stateRef.current.articles.reduce(
-        (n, a) => (a.feed_id === feedId ? n + 1 : n),
-        0,
-      );
-      const fetched = await fetchOneFeed(feed, buildProxyArg(prefsRef.current), localCount, true);
+      const fetched = await fetchOneFeed(feed, buildProxyArg(prefsRef.current));
       const result = fetched.result;
       setState((prev) => {
         // 按稳定标识 + id 去重（见 lib/articleDedupe.ts）：订阅源 URL / entry.id 变过后，
         // 存量文章的 id 可能与本次抓取结果不同，只比 id 会把同一篇文章再插一遍
         // （列表出现重复、已读 / 收藏丢失）
         const articles = appendArticles(prev.articles, result.articles);
-        // 即使没有新文章也要回写 ETag / Last-Modified，供下次条件请求
-        const title = result.not_modified ? feed.title : result.feed_title;
-        // 抓完顺手抬水位线：本地篇数创新高时记下来，供日后判断「是否被清理过」
-        const feeds = recordPeakCounts(
-          prev.feeds.map((f) =>
-            f.id === result.feed_id
-              ? { ...f, title, etag: result.etag, last_modified: result.last_modified }
-              : f,
-          ),
-          articles,
+        const feeds = prev.feeds.map((f) =>
+          f.id === result.feed_id ? { ...f, title: result.feed_title } : f,
         );
-        if (articles === prev.articles && feeds === prev.feeds) return prev;
+        if (articles === prev.articles) return prev;
         const next: AppState = {
           feeds,
           articles,
@@ -522,7 +487,7 @@ function App(): JSX.Element {
         rssService.saveStateDebounced(next);
         return next;
       });
-      addMessage("success", `${feed.title}: ${result.not_modified ? "无更新" : "刷新完成"}`);
+      addMessage("success", `${result.feed_title || feed.title}: 刷新完成`);
     } catch (err) {
       addMessage("error", `${feed.title}: ${String(err)}`);
     }
@@ -571,10 +536,6 @@ function App(): JSX.Element {
       group_id: null,
       sort_order: 0,
       open_method: null,
-      etag: result.etag,
-      last_modified: result.last_modified,
-      // 水位线：首次抓取就有多少篇，之后低于它即说明被清理过
-      peak_article_count: result.articles.length,
     };
 
     setState((prev) => {
@@ -584,9 +545,7 @@ function App(): JSX.Element {
       const next: AppState = {
         feeds: alreadySubscribed
           ? prev.feeds.map((f) =>
-              f.id === newFeed.id
-                ? { ...f, title: newFeed.title, etag: newFeed.etag, last_modified: newFeed.last_modified }
-                : f,
+              f.id === newFeed.id ? { ...f, title: newFeed.title } : f,
             )
           : [newFeed, ...prev.feeds],
         articles,
@@ -616,10 +575,6 @@ function App(): JSX.Element {
         group_id: null,
         sort_order: 0,
         open_method: null,
-        etag: null,
-        last_modified: null,
-        // 尚未抓取，水位线待首次刷新后写入
-        peak_article_count: 0,
       });
     }
     if (toAdd.length === 0) return;
@@ -680,8 +635,7 @@ function App(): JSX.Element {
   /**
    * 更新订阅源属性（名称 / URL / 打开方式）。
    * URL 变更意味着订阅源身份变化：重算 feed id，并把该源的文章按新 id 重算，
-   * 清掉旧 URL 的 ETag / Last-Modified（对新 URL 无意义，否则会被服务端当成
-   * 「未变化」而误报无更新），后续刷新才能正常去重、保留已读与收藏。
+   * 后续刷新才能正常去重、保留已读与收藏。
    */
   const handleUpdateFeed = useCallback(async (
     feedId: string,
@@ -703,14 +657,7 @@ function App(): JSX.Element {
       const next: AppState = {
         ...prev,
         feeds: prev.feeds.map((f) =>
-          f.id === feedId
-            ? {
-                ...f,
-                ...patch,
-                id: newId,
-                ...(urlChanged ? { etag: null, last_modified: null } : {}),
-              }
-            : f,
+          f.id === feedId ? { ...f, ...patch, id: newId } : f,
         ),
         articles: remappedArticles
           ? remappedArticles
@@ -729,7 +676,8 @@ function App(): JSX.Element {
 
   /**
    * 刷新订阅源（缺省全部；可传入子集，如批量导入后只刷新新增源）。
-   * 带 ETag / Last-Modified 走条件请求，304 时跳过下载与解析。
+   * **全量抓取**：每个源都重新下载并解析整份订阅源（不带 ETag / Last-Modified），
+   * 与单源「刷新」完全同一条路径，结果不会因本地数据状态而不同。
    */
   const runRefresh = useCallback(async (targetFeeds?: Feed[]) => {
     if (refreshingRef.current) return;
@@ -757,14 +705,7 @@ function App(): JSX.Element {
         while (cursor < targets.length) {
           const feed = targets[cursor++];
           try {
-            // 这条路径只做增量更新：304 就跳过，不为了取回被清理的文章去全量重抓
-            // （取回入口是单源「刷新」，见 fetchOneFeed 的 recoverWhenEmpty）
-            const result = await rssService.fetchFeed(
-              feed.url,
-              proxyArg,
-              feed.etag,
-              feed.last_modified,
-            );
+            const result = await rssService.fetchFeed(feed.url, proxyArg);
             settled.push({ ok: true, feed, result });
           } catch (err) {
             settled.push({ ok: false, feed, err: String(err) });
@@ -777,10 +718,8 @@ function App(): JSX.Element {
     // 汇总成功结果 + 失败错误
     const successes: { result: FetchResult }[] = [];
     const errors: { feed: string; err: string }[] = [];
-    let notModifiedCount = 0;
     for (const r of settled) {
       if (r.ok) {
-        if (r.result.not_modified) notModifiedCount += 1;
         successes.push({ result: r.result });
       } else {
         errors.push({ feed: r.feed.title || r.feed.url, err: r.err });
@@ -788,19 +727,13 @@ function App(): JSX.Element {
     }
 
     if (successes.length > 0) {
-      // 一次性合并所有新文章 + 回写标题与 ETag / Last-Modified
+      // 一次性合并所有新文章 + 回写订阅源标题
       setState((prev) => {
         const feedPatches = new Map<string, Partial<Feed>>();
         const fetched: typeof prev.articles = [];
         for (const { result } of successes) {
-          const patch: Partial<Feed> = {
-            etag: result.etag,
-            last_modified: result.last_modified,
-          };
-          // 304 响应不含元信息，不覆盖标题
-          if (!result.not_modified && result.feed_title) {
-            patch.title = result.feed_title;
-          }
+          const patch: Partial<Feed> = {};
+          if (result.feed_title) patch.title = result.feed_title;
           feedPatches.set(result.feed_id, patch);
           fetched.push(...result.articles);
         }
@@ -810,9 +743,8 @@ function App(): JSX.Element {
         });
         // 与单源刷新同一套去重口径（稳定标识 + id）：多个源一起刷新也不会插重
         const articles = appendArticles(prev.articles, fetched);
-        // 水位线：抓完把各源本地篇数的历史最高值记下来（取回判据，见 lib/feedConditional.ts）
         const next: AppState = {
-          feeds: recordPeakCounts(patchedFeeds, articles),
+          feeds: patchedFeeds,
           articles,
           groups: prev.groups,
         };
@@ -825,10 +757,7 @@ function App(): JSX.Element {
       addMessage("error", `${errors.length} 个订阅源刷新失败`);
       errors.slice(0, 5).forEach((e) => addMessage("error", `${e.feed}: ${e.err}`));
     } else if (successes.length > 0) {
-      addMessage(
-        "success",
-        notModifiedCount === successes.length ? "全部订阅源无更新" : "刷新完成",
-      );
+      addMessage("success", "刷新完成");
     }
 
     refreshingRef.current = false;
@@ -892,40 +821,26 @@ function App(): JSX.Element {
   );
 
   /**
-   * 清理 N 天前的本地缓存文章（星标文章属于用户数据，始终保留）。
-   * 返回实际清理条数，供设置面板反馈；用 Date.parse 避免逐条构造 Date 对象。
+   * 清理本地缓存：清内存里的解析缓存（全文提取结果 + 列表预览文本 + 搜索索引），
+   * 并清空 WebView 的磁盘缓存（文章图片缓存，实测可达数百 MB）。**不删除任何文章**。
    *
-   * 刻意**不动**订阅源的 ETag / Last-Modified：条件请求头留着，「刷新所有订阅源」才会继续拿到
-   * 304「无更新」而跳过，不会把刚清掉的旧文章整批拉回来。想取回被清理的文章，用抽屉里该源的
-   * 「刷新」——清理时会把水位线抬到清理前的篇数，单源刷新据此知道该完整重抓一次。
+   * 注意顺序：`clear_all_browsing_data` 会连带清掉 WebView 的 localStorage，而界面偏好就存在
+   * 那里——所以先取出偏好快照，清完再写回，避免主题 / 字号 / 代理等设置被重置。
+   * 磁盘缓存清理是异步的，失败也不影响内存缓存清理的结果。
    */
-  const handleCleanupOldArticles = useCallback((days: number): number => {
-    const cutoff = Date.now() - days * 86400000;
-    const current = stateRef.current;
-    const kept: typeof current.articles = [];
-    const removedArticles: typeof current.articles = [];
-    for (const a of current.articles) {
-      if (a.starred || !a.published_at) {
-        kept.push(a);
-        continue;
-      }
-      const ts = Date.parse(a.published_at);
-      if (Number.isNaN(ts) || ts >= cutoff) {
-        kept.push(a);
-        continue;
-      }
-      removedArticles.push(a);
-    }
-    if (removedArticles.length === 0) return 0;
-    const next: AppState = {
-      ...current,
-      // 水位线 = 清理前的篇数：本地篇数低于它，单源「刷新」就会完整重抓取回
-      feeds: raisePeakAfterCleanup(current.feeds, kept, removedArticles),
-      articles: kept,
-    };
-    setState(next);
-    rssService.saveStateDebounced(next);
-    return removedArticles.length;
+  const handleClearLocalCache = useCallback((): number => {
+    const cleared = clearFullContentCache() + clearPreviewCache();
+    searchTextCacheRef.current.clear();
+    const prefsSnapshot = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    void rssService
+      .clearWebviewCache()
+      .catch(() => {})
+      .finally(() => {
+        if (prefsSnapshot !== null) {
+          window.localStorage.setItem(PREFERENCES_STORAGE_KEY, prefsSnapshot);
+        }
+      });
+    return cleared;
   }, []);
 
   /** 分组操作 */
@@ -1211,6 +1126,7 @@ function App(): JSX.Element {
               onOpenLink={() =>
                 selectedArticle.link && void handleOpenArticle(selectedArticle.link)
               }
+              onOpenExternal={(url) => void handleOpenArticle(url)}
               fontSize={prefs.fontSize}
               proxyArg={buildProxyArg(prefs)}
             />
@@ -1272,8 +1188,7 @@ function App(): JSX.Element {
           onAddGroup={handleAddGroup}
           onRenameGroup={handleRenameGroup}
           onRemoveGroup={handleRemoveGroup}
-          cleanupCounts={stats.cleanupCounts}
-          onCleanupOldArticles={handleCleanupOldArticles}
+          onClearLocalCache={handleClearLocalCache}
           onBackup={handleBackup}
           onRestore={handleRestore}
         />

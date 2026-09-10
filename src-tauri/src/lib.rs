@@ -65,6 +65,8 @@ pub fn run() {
             commands::rss::write_file_text,
             commands::rss::update_proxy_setting,
             commands::rss::test_proxy,
+            commands::rss::clear_webview_cache,
+            commands::rss::cleanup_old_updater_dirs,
             deep_link::take_pending_feed_link,
         ])
         .run(tauri::generate_context!())

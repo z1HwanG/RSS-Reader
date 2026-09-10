@@ -30,16 +30,31 @@ export interface Feed {
   sort_order: number;
   /** 文章打开方式：null=内部阅读，"external"=外部浏览器 */
   open_method: string | null;
-  /** 上次抓取响应的 ETag（条件请求用；历史数据可能缺失） */
-  etag?: string | null;
-  /** 上次抓取响应的 Last-Modified（条件请求用；历史数据可能缺失） */
-  last_modified?: string | null;
+}
+
+/** 文章附带的媒体资源（RSS enclosure / MediaRSS / JSON Feed 附件 / Atom 媒体链接） */
+export interface MediaItem {
+  /** 资源地址 */
+  url: string;
+  /** MIME 类型（可能缺失，前端按扩展名兜底判断） */
+  content_type?: string | null;
+  /** 资源标题 */
+  title?: string | null;
+  /** 字节大小 */
+  size?: number | null;
+  /** 时长（秒） */
+  duration_secs?: number | null;
+  /** 宽度（像素） */
+  width?: number | null;
+  /** 高度（像素） */
+  height?: number | null;
   /**
-   * 该源本地文章数的历史最高值（清理缓存的水位线）。
-   * 本地篇数低于它，说明文章被清理过——单源「刷新」据此决定忽略条件请求完整重抓一次
-   * （条件请求本身只会回 304，永远取不回被清理的文章）。旧数据缺该字段时为 0，等于没有水位。
+   * 可直接内嵌的播放器地址（正文里的 Bilibili / YouTube 等 iframe 嵌入）。
+   * 有值时按嵌入播放器渲染；为空表示只能开浏览器（平台观看页或禁止内嵌）。
    */
-  peak_article_count?: number;
+  embed_src?: string | null;
+  /** 嵌入平台名（Bilibili / YouTube / …） */
+  embed_platform?: string | null;
 }
 
 /** 一篇文章 */
@@ -56,8 +71,23 @@ export interface Article {
   feed_id: string;
   /** 标题 */
   title: string | null;
-  /** 正文摘要（HTML） */
+  /**
+   * 正文内容。HTML / XHTML 是标记文本；text/plain、text/markdown 按原文保存，
+   * 由 ArticleView 依据 content_type 决定渲染方式。
+   */
   content: string | null;
+  /** 正文内容类型（MIME，如 text/html、text/plain、text/markdown）；旧数据缺失按 HTML 处理 */
+  content_type?: string | null;
+  /** 正文之外另存的摘要文本（仅供预览与「正文即摘要」提示） */
+  summary?: string | null;
+  /** 作者（多人以「、」连接） */
+  author?: string | null;
+  /** 标签 / 分类 */
+  categories?: string[];
+  /** 缩略图地址 */
+  thumbnail?: string | null;
+  /** 媒体附件（图片 / 音频 / 视频 / 文档） */
+  media?: MediaItem[];
   /** 原文链接 */
   link: string | null;
   /** 发布日期（ISO 时间戳，可能为空） */
@@ -89,19 +119,13 @@ export interface AppState {
   groups: Group[];
 }
 
-/** 抓取订阅源的中间结果 */
+/** 抓取订阅源的中间结果（每次都是全量抓取，没有 304 / 条件请求分支） */
 export interface FetchResult {
   feed_id: string;
   feed_title: string;
   feed_description: string | null;
   feed_site_url: string | null;
   articles: Article[];
-  /** 本次响应的 ETag（供下次条件请求） */
-  etag: string | null;
-  /** 本次响应的 Last-Modified（供下次条件请求） */
-  last_modified: string | null;
-  /** 订阅源未变化（304）：articles 为空，标题等元信息不更新 */
-  not_modified: boolean;
 }
 
 /** 代理配置 */
