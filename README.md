@@ -213,9 +213,9 @@ Grab a build from Releases (both platforms carry the same files):
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.3.2_x64-setup.exe` | NSIS installer (recommended) |
-| `RSSReader_0.3.2_x64_en-US.msi` | MSI package |
-| `RSSReader_0.3.2_x64_portable.exe` | Portable single file; WebView2 must already be installed |
+| `RSSReader_0.3.3_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.3.3_x64_en-US.msi` | MSI package |
+| `RSSReader_0.3.3_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
 or Linux packages yet.

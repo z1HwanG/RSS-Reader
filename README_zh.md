@@ -184,9 +184,9 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.3.2_x64-setup.exe` | NSIS 安装程序（推荐） |
-| `RSSReader_0.3.2_x64_en-US.msi` | MSI 安装包 |
-| `RSSReader_0.3.2_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+| `RSSReader_0.3.3_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.3.3_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.3.3_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
 
