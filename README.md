@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.3.2`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.3.3`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
@@ -40,6 +40,10 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 - Add / edit / delete RSS 2.0, RSS 1.0, Atom and JSON Feed subscriptions
 - Groups: create, rename and delete groups, move feeds between them; the sidebar lists collapsible
   group sections with unread counts
+- Manual ordering: Settings → "Groups & order" lists every feed in group + in-group order — hold the
+  handle at the start of a row to drag it anywhere (across groups included), or use the per-row
+  "move to top / move to bottom" buttons; the in-group order is persisted and drives the sidebar and
+  the article list
 - OPML batch import / export (newly imported feeds are refreshed in the background)
 - Per-feed reading mode: in-app reader or open in the external browser
 - Conditional requests (`ETag` / `Last-Modified`): a 304 response skips download and parsing
@@ -122,7 +126,7 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 | Desktop shell | Tauri 2 (Rust) |
 | Frontend | React 18 + TypeScript (strict) + Vite 5 |
 | Styling | Plain CSS with Fluent 2 design language (light / dark theme variables) |
-| Icons | Material Symbols Rounded (locally subset, ~37 KB) |
+| Icons | Material Symbols Rounded (locally subset, ~44 KB) |
 | Feed parsing | feed-rs 2 (RSS 2.0/1.0, Atom, JSON Feed) |
 | HTTP | reqwest 0.12 (rustls TLS, http2, gzip / brotli / deflate, system-proxy, socks) |
 | Tauri plugins | @tauri-apps/plugin-opener, @tauri-apps/plugin-dialog, @tauri-apps/plugin-updater, @tauri-apps/plugin-process |
@@ -242,7 +246,7 @@ Artifacts are written to `src-tauri/target/release/bundle/`.
 ### Icon font subsetting
 
 Icons use a local Material Symbols Rounded font, already subset: the full variable font is about
-5 MB, while this project uses a few dozen icons and ships a ~37 KB subset (keeping `rlig` ligatures
+5 MB, while this project uses a few dozen icons and ships a ~44 KB subset (keeping `rlig` ligatures
 and the `FILL` variable axis).
 
 After adding icons, regenerate it:
@@ -260,7 +264,7 @@ every ligature with HarfBuzz, writing directly to
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl / Cmd + F` | Focus and select the search box |
-| `Esc` | Clear the search box and leave it; close settings and other modals |
+| `Esc` | Clear the search box and leave it; cancel an in-progress drag in "Groups & order"; close settings and other modals |
 | `Enter` | Confirm a group rename, add a feed, submit a title / URL edit |
 
 ## Architecture

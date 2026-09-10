@@ -5,6 +5,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { Article } from "../types";
 import type { ViewMode } from "../../../lib/preferences";
+import { useResetScrollOnChange } from "../../../lib/scrollReset";
 
 interface ArticleListProps {
   articles: Article[];
@@ -22,6 +23,11 @@ interface ArticleListProps {
   onLoadMore?: () => void;
   /** 视图模式：紧凑 / 列表 / 卡片 */
   viewMode?: ViewMode;
+  /**
+   * 内容集合标识：值变化时列表滚回顶部（订阅源 / 筛选 / 排序 / 搜索 / 视图模式）。
+   * 注意不要传文章数组——后台刷新追加文章时归零会打断阅读位置。
+   */
+  resetKey?: string;
   /** 订阅源标题表（全部视图下显示来源） */
   feedTitles?: Map<string, string>;
   /** 空列表提示文案 */
@@ -150,6 +156,7 @@ export function ArticleList({
   hasMore,
   onLoadMore,
   viewMode = "compact",
+  resetKey,
   feedTitles,
   emptyHint,
   emptyIcon,
@@ -159,6 +166,8 @@ export function ArticleList({
   onShare,
 }: ArticleListProps): JSX.Element {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // 列表滚动容器（.article-items）：内容集合变化时回到顶部
+  const itemsRef = useResetScrollOnChange<HTMLUListElement>(resetKey);
   const [ctxMenu, setCtxMenu] = useState<ArticleCtxMenu | null>(null);
   // 分钟级时钟：行组件已 memo 化，不会随父组件重渲染自动刷新相对时间
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -265,10 +274,13 @@ export function ArticleList({
           <div>{emptyHint ?? "暂无文章，添加订阅源或刷新试试"}</div>
         </div>
       ) : (
-        <ul className={`article-items mode-${viewMode}`}>
-          {articles.map((article) => (
+        <ul ref={itemsRef} className={`article-items mode-${viewMode}`}>
+          {articles.map((article, index) => (
             <ArticleRow
-              key={article.id}
+              // key 带上下标：存量数据若仍有重复 id（旧版本写入的两条同 id 记录），
+              // 撞 key 会让 React 在协调时残留上一次渲染的 DOM 节点，
+              // 表现为列表里混进其他订阅源的文章。载入时已做合并，这里是兜底。
+              key={`${article.id}#${index}`}
               article={article}
               selected={selectedArticleId === article.id}
               feedName={!currentFeedName ? feedTitles?.get(article.feed_id) ?? "" : ""}

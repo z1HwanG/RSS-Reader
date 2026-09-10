@@ -6,7 +6,7 @@
  *   网络: HTTP 代理（格式校验 + 连通性测试）；通用: 清理缓存 / 备份还原
  *   所有设置即时生效（含阅读字号）；点击遮罩或按 Esc 关闭
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { save as showSaveDialog, open as showOpenDialog } from "@tauri-apps/plugin-dialog";
 import {
   buildProxyUrl,
@@ -16,11 +16,23 @@ import {
   type ProxyPrefs,
 } from "../../../lib/preferences";
 import type { Feed, Group } from "../types";
+import {
+  filterFeedsByName,
+  sortFeeds,
+  sortFeedsByGroupOrder,
+  type FeedMovePosition,
+  type FeedSortDirection,
+  type FeedSortMode,
+} from "../../../lib/feedOrder";
 import * as rssService from "../services/rssService";
 import * as updateService from "../services/updateService";
 import pkg from "../../../../package.json";
 
 type SettingsTab = "feeds" | "organize" | "appearance" | "network" | "general" | "about";
+
+/** 「全部订阅源」排序方式 / 方向的本地偏好键（只影响设置面板展示顺序） */
+const FEED_SORT_STORAGE_KEY = "rss-reader-feed-sort-mode";
+const FEED_SORT_DIRECTION_KEY = "rss-reader-feed-sort-direction";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -43,7 +55,11 @@ interface SettingsModalProps {
   onRemoveFeeds: (feedIds: string[]) => void;
   /** 更新订阅源属性（名称/URL/打开方式） */
   onUpdateFeed: (feedId: string, patch: Partial<Pick<Feed, "title" | "url" | "open_method">>) => Promise<void>;
-  onMoveFeed: (feedId: string, direction: "up" | "down") => void;
+  /**
+   * 移动订阅源：按档位上移/下移/置顶/置底，或（拖拽时）插到 `beforeId` 之前。
+   * 只在同组内生效，`sort_order` 为组内序号。
+   */
+  onMoveFeed: (feedId: string, position: FeedMovePosition, beforeId?: string | null) => void;
   onMoveToGroup: (feedId: string, groupId: string | null) => void;
   onMoveGroup: (groupId: string, direction: "up" | "down") => void;
   onAddGroup: (name: string) => void;
@@ -296,7 +312,40 @@ export function SettingsModal({
     }
   }, [updateInfo]);
 
-  const sortedFeeds = [...feeds].sort((a, b) => a.sort_order - b.sort_order);
+  /**
+   * 「全部订阅源」列表的排序方式：按添加时间 / 按分组。
+   * 只影响设置面板的展示顺序，不改动订阅源本身（真正的顺序由分组 + 组内 sort_order 决定）。
+   * 「按添加时间」还有一个方向：最新在前（默认）/ 最早在前，点箭头切换。
+   */
+  const [feedSortMode, setFeedSortMode] = useState<FeedSortMode>(
+    () => (window.localStorage.getItem(FEED_SORT_STORAGE_KEY) as FeedSortMode | null) ?? "added",
+  );
+  const [feedSortDirection, setFeedSortDirection] = useState<FeedSortDirection>(() =>
+    window.localStorage.getItem(FEED_SORT_DIRECTION_KEY) === "asc" ? "asc" : "desc",
+  );
+  const changeFeedSortMode = (mode: FeedSortMode): void => {
+    setFeedSortMode(mode);
+    window.localStorage.setItem(FEED_SORT_STORAGE_KEY, mode);
+  };
+  const toggleFeedSortDirection = (): void => {
+    setFeedSortDirection((prev) => {
+      const next: FeedSortDirection = prev === "desc" ? "asc" : "desc";
+      window.localStorage.setItem(FEED_SORT_DIRECTION_KEY, next);
+      return next;
+    });
+  };
+  // 直接计算（不用 useMemo）：订阅源只有几十个，排序开销可忽略；
+  // 避免任何缓存让「列表顺序」在排序操作后仍是旧值。
+  const sortedFeeds = sortFeeds(feeds, groups, feedSortMode, feedSortDirection);
+  /**
+   * 「分组与排序」页签的顺序：始终按「分组 + 组内 sort_order」，不跟随上面的浏览偏好。
+   * 反之，在「按添加时间」下点置顶/置底、拖动排序，界面会被时间戳顺序盖住，看着像没生效。
+   */
+  const organizeFeeds = sortFeedsByGroupOrder(feeds, groups);
+  /** 「全部订阅源」的名称搜索（会话内状态，不持久化） */
+  const [feedQuery, setFeedQuery] = useState("");
+  const visibleFeeds = filterFeedsByName(sortedFeeds, feedQuery);
+  const searchingFeeds = feedQuery.trim().length > 0;
 
   // 订阅源 tab 选框切换
   const toggleFeedCheck = (feedId: string): void => {
@@ -309,7 +358,8 @@ export function SettingsModal({
   };
 
   // 订阅源 tab — 全选/取消全选
-  const allFeedIds = new Set(sortedFeeds.map((f) => f.id));
+  // 注意：以「当前可见（可能被搜索过滤）的订阅源」为准，避免搜索时全选到看不见的源。
+  const allFeedIds = new Set(visibleFeeds.map((f) => f.id));
   const allFeedsChecked = checkedFeedIds.size > 0 && checkedFeedIds.size === allFeedIds.size;
   const someFeedsChecked = checkedFeedIds.size > 0 && !allFeedsChecked;
 
@@ -372,7 +422,7 @@ export function SettingsModal({
   }, [confirmCleanupDays, confirmDeleteIds, onClose]);
 
   function getFeedsByGroup(groupId: string | null): Feed[] {
-    return sortedFeeds.filter((f) => f.group_id === groupId);
+    return organizeFeeds.filter((f) => f.group_id === groupId);
   }
 
   // ---- 订阅源 tab 操作 ----
@@ -516,29 +566,328 @@ export function SettingsModal({
     setEditingGroupId(null);
   };
 
+  // ---- 分组与排序 tab：拖拽排序 ----
+  /**
+   * 拖拽排序用**原生事件监听**实现，不走 React 的合成事件：
+   * 浏览器在 dragstart 之后会立刻连续派发 dragover，而 React 的 setState 是异步批处理的，
+   * 那时读取 state 拿到的仍是「没在拖」，onDragOver 里一旦据此 return 就从不 accept，
+   * 浏览器会把整片区域显示成「禁止」光标（实测症状）。原生监听里用一个普通变量记录状态，
+   * 同步读写、与 React 的渲染时序完全解耦。
+   *
+   * 两条通道，同屏只启用一条：
+   * - `html5`：`draggable` 行 + dragstart/dragover/drop。要求窗口 `dragDropEnabled: false`
+   *   （Tauri 默认 true 会由 WebView2 接管拖放，HTML5 拖拽在 Windows 上完全失效）；
+   * - `pointer`：按住拖拽手柄后用 pointer 事件自绘。不依赖任何原生拖放能力，
+   *   因此在 `dragDropEnabled: true` 的窗口里也能用。
+   *
+   * 由 `pointerModeRef` 在运行时选定：手柄上指针一按下就先按 pointer 通道走，
+   * 真浏览器随后派发 dragstart 时再让位给 HTML5 通道（见 onPointerDown 里的指针捕获释放）。
+   */
+  const DRAG_THRESHOLD_PX = 4;
+  const organizeListRef = useRef<HTMLDivElement | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  const pointerModeRef = useRef(false);
+  const pointerDragRef = useRef<{ startY: number; active: boolean; row: HTMLElement } | null>(null);
+  /** 自动滚动的 rAF 句柄（拖到列表上下边缘时用） */
+  const autoScrollRafRef = useRef<number | null>(null);
+  /**
+   * 拖拽期间要读订阅源列表：走 ref 而不是闭包里的 `feeds`。
+   * 落点提交会触发一次重排，闭包里的 `feeds` 就成了旧值（跨分组判断会用到 group_id），
+   * 而 ref 读的是最新一次渲染的数据。
+   */
+  const feedsRef = useRef<Feed[]>(feeds);
+  feedsRef.current = feeds;
+
+  /** 找当前滚动容器（列表可能整体不滚动，沿用最近的滚动祖先） */
+  const scrollContainerOf = (el: HTMLElement): HTMLElement | null => {
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      if (node.scrollHeight > node.clientHeight + 1) return node;
+      node = node.parentElement;
+    }
+    return null;
+  };
+
+  /**
+   * 按指针位置找落点：命中哪一行的上半 → 插到它之前；落到该分组末尾 → `beforeId` 为 null。
+   * 返回 null 表示指针不在任何分组内（此时不提交，避免误判成「置底」）。
+   */
+  const findDropSlot = (
+    clientY: number,
+  ): { beforeId: string | null; groupKey: string | null } | null => {
+    const container = organizeListRef.current;
+    if (!container) return null;
+    for (const group of container.querySelectorAll<HTMLElement>(".feed-group")) {
+      const rect = group.getBoundingClientRect();
+      if (clientY < rect.top || clientY > rect.bottom) continue;
+      const groupKey = group.dataset.groupKey ?? null;
+      const rows = [...group.querySelectorAll<HTMLElement>(".organize-row")];
+      for (const row of rows) {
+        const r = row.getBoundingClientRect();
+        if (clientY < r.top + r.height / 2) {
+          return { beforeId: row.dataset.feedId ?? null, groupKey };
+        }
+      }
+      return { beforeId: null, groupKey };
+    }
+    return null;
+  };
+
+  /**
+   * 提交一次移动：`slot` 为 null（指针不在任何分组内）时不做任何事。
+   * 跨分组时先改归属，等状态落地再按落点排序。
+   * 依赖只走 ref 与 `onMove*`（都是 useCallback 稳定引用），因此监听器可以只挂一次。
+   */
+  const commitDrop = (
+    feedId: string,
+    slot: { beforeId: string | null; groupKey: string | null } | null,
+  ): void => {
+    if (!slot) return;
+    const dragged = feedsRef.current.find((f) => f.id === feedId);
+    if (!dragged) return;
+    const targetGroupId = slot.groupKey === "__ungrouped__" ? null : slot.groupKey;
+    const crossGroup = slot.groupKey !== null && (dragged.group_id ?? null) !== targetGroupId;
+    const beforeId = slot.beforeId === feedId ? null : slot.beforeId;
+    if (crossGroup) onMoveToGroup(dragged.id, targetGroupId);
+    // 有落点行 → 插到它之前；落在分组末尾（没有落点行）→ 置底。
+    // 注意不能两种都传 "top"：纯函数把 `beforeId` 为 null 时的 "top" 解释成「移到首位」，
+    // 拖到组末尾就会被判成原地不动，看着像没生效。
+    const position: FeedMovePosition = beforeId ? "top" : "bottom";
+    const run = (): void => onMoveFeed(dragged.id, position, beforeId);
+    if (crossGroup) window.setTimeout(run, 0);
+    else run();
+  };
+
+  /**
+   * 拖拽手柄与落点逻辑都放在这里，注册却只发生一次（依赖只含 tab）。
+   *
+   * 原来把 `feeds` 放进依赖里，导致每次重排都重建监听：
+   * 落点提交的那一瞬间正好把「拖拽中」的 DOM 状态和正在处理的监听一起拆掉。
+   * 现在顺序由行 key 驱动重排，监听保持稳定，拖拽过程中不断线。
+   */
+  useEffect(() => {
+    if (tab !== "organize") return;
+    const container = organizeListRef.current;
+    if (!container) return;
+
+    const clearIndicator = (): void => {
+      container.classList.remove("organize-dragging");
+      container.querySelectorAll(".drop-before").forEach((el) => el.classList.remove("drop-before"));
+      container.querySelectorAll(".drop-here").forEach((el) => el.classList.remove("drop-here"));
+      container.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
+    };
+
+    const showIndicator = (slot: { beforeId: string | null; groupKey: string | null } | null): void => {
+      const activeId = draggingIdRef.current;
+      container.querySelectorAll(".drop-before").forEach((el) => {
+        if (el.getAttribute("data-feed-id") !== slot?.beforeId) el.classList.remove("drop-before");
+      });
+      container.querySelectorAll(".drop-here").forEach((el) => {
+        if (el.getAttribute("data-group-key") !== slot?.groupKey) el.classList.remove("drop-here");
+      });
+      if (!slot) return;
+      const row = slot.beforeId
+        ? container.querySelector<HTMLElement>(`.organize-row[data-feed-id="${CSS.escape(slot.beforeId)}"]`)
+        : null;
+      if (row && slot.beforeId !== activeId) row.classList.add("drop-before");
+      if (slot.groupKey) {
+        container
+          .querySelector<HTMLElement>(`.feed-group[data-group-key="${CSS.escape(slot.groupKey)}"]`)
+          ?.classList.add("drop-here");
+      }
+    };
+
+    const stopAutoScroll = (): void => {
+      if (autoScrollRafRef.current !== null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+    };
+
+    /** 拖到可滚动区域上下边缘时自动滚动，让长列表也能拖到远处的分组 */
+    const startAutoScroll = (clientY: number): void => {
+      stopAutoScroll();
+      const scroller = scrollContainerOf(container);
+      if (!scroller) return;
+      const rect = scroller.getBoundingClientRect();
+      const margin = 28;
+      const speed =
+        clientY < rect.top + margin
+          ? -Math.ceil((rect.top + margin - clientY) / 3)
+          : clientY > rect.bottom - margin
+            ? Math.ceil((clientY - (rect.bottom - margin)) / 3)
+            : 0;
+      if (speed === 0) return;
+      const step = (): void => {
+        scroller.scrollTop += speed;
+        autoScrollRafRef.current = requestAnimationFrame(step);
+      };
+      autoScrollRafRef.current = requestAnimationFrame(step);
+    };
+
+    /** 收起所有拖拽视觉状态（两条通道共用） */
+    const resetDragState = (): void => {
+      draggingIdRef.current = null;
+      pointerDragRef.current = null;
+      pointerModeRef.current = false;
+      stopAutoScroll();
+      clearIndicator();
+    };
+
+    // ===== 通道一：HTML5 原生拖拽 =====
+    const onDragStart = (event: DragEvent): void => {
+      if (!pointerModeRef.current) return;
+      // 手柄按下的这次拖拽被浏览器接走了：原生拖放可用 → 从此走 HTML5 通道
+      pointerModeRef.current = false;
+      pointerDragRef.current = null;
+      const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(".organize-row");
+      const id = row?.dataset.feedId ?? null;
+      draggingIdRef.current = id;
+      if (row) row.classList.add("dragging");
+      container.classList.add("organize-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", id ?? "");
+      }
+    };
+
+    const onDragOver = (event: DragEvent): void => {
+      if (pointerModeRef.current || !draggingIdRef.current) return;
+      // 关键：同步 accept，浏览器就不会显示「禁止」光标
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      startAutoScroll(event.clientY);
+      showIndicator(findDropSlot(event.clientY));
+    };
+
+    const onDrop = (event: DragEvent): void => {
+      if (pointerModeRef.current) return;
+      const dragId = draggingIdRef.current;
+      if (!dragId) return;
+      event.preventDefault();
+      const slot = findDropSlot(event.clientY);
+      resetDragState();
+      commitDrop(dragId, slot);
+    };
+
+    const onDragEnd = (): void => resetDragState();
+
+    // ===== 通道二：指针自绘拖拽（不依赖原生拖放） =====
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      // 只有手柄按下才算「拖」——整行都能拖会和行内按钮抢事件，也让误拖变多
+      if (!target?.closest(".feeds-manage-row-handle")) return;
+      const row = target.closest<HTMLElement>(".organize-row");
+      if (!row?.dataset.feedId) return;
+      draggingIdRef.current = row.dataset.feedId;
+      pointerModeRef.current = true;
+      pointerDragRef.current = { startY: event.clientY, active: false, row };
+      // 手柄按下才让这一行获得原生拖拽语义（原生拖放接管时由 HTML5 通道接手）
+      row.draggable = true;
+      try {
+        // 指针捕获：拖出容器甚至窗口外也能继续收到 pointermove / pointerup。
+        // 指针不处于活动状态时会抛 NotFoundError —— 必须在 try 里，
+        // 否则异常会中断本处理函数，拖拽状态建不起来（拖拽直接失效）。
+        row.setPointerCapture(event.pointerId);
+      } catch {
+        /* 拿不到捕获也能拖，只是移出窗口外会断线 */
+      }
+    };
+
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!pointerModeRef.current || !draggingIdRef.current) return;
+      const drag = pointerDragRef.current;
+      if (!drag) return;
+      if (!drag.active) {
+        if (Math.abs(event.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
+        drag.active = true;
+        drag.row.classList.add("dragging");
+        container.classList.add("organize-dragging");
+      }
+      event.preventDefault();
+      startAutoScroll(event.clientY);
+      showIndicator(findDropSlot(event.clientY));
+    };
+
+    const finishPointerDrag = (event: PointerEvent, commit: boolean): void => {
+      if (!pointerModeRef.current) return;
+      const dragId = draggingIdRef.current;
+      const drag = pointerDragRef.current;
+      const slot = commit && drag?.active ? findDropSlot(event.clientY) : null;
+      const row = drag?.row;
+      resetDragState();
+      if (row?.hasPointerCapture(event.pointerId)) row.releasePointerCapture(event.pointerId);
+      if (row) row.draggable = false;
+      if (commit && drag?.active && dragId) commitDrop(dragId, slot);
+    };
+
+    const onPointerUp = (event: PointerEvent): void => finishPointerDrag(event, true);
+    const onPointerCancel = (event: PointerEvent): void => finishPointerDrag(event, false);
+    /** 拖到一半按 Esc：放弃这次拖拽（不改数据） */
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || !pointerModeRef.current) return;
+      const row = pointerDragRef.current?.row;
+      resetDragState();
+      if (row) row.draggable = false;
+    };
+
+    container.addEventListener("dragstart", onDragStart);
+    container.addEventListener("dragover", onDragOver);
+    container.addEventListener("drop", onDrop);
+    container.addEventListener("dragend", onDragEnd);
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointermove", onPointerMove);
+    container.addEventListener("pointerup", onPointerUp);
+    container.addEventListener("pointercancel", onPointerCancel);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      container.removeEventListener("dragstart", onDragStart);
+      container.removeEventListener("dragover", onDragOver);
+      container.removeEventListener("drop", onDrop);
+      container.removeEventListener("dragend", onDragEnd);
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("pointerup", onPointerUp);
+      container.removeEventListener("pointercancel", onPointerCancel);
+      document.removeEventListener("keydown", onKeyDown);
+      stopAutoScroll();
+    };
+  }, [tab]);
+
   /** 渲染单个订阅源行（分组与排序 tab） */
   function renderFeedRow(feed: Feed, index: number, total: number): JSX.Element {
     return (
-      <li key={feed.id} className="feeds-manage-item">
+      <li
+        key={feed.id}
+        data-feed-id={feed.id}
+        className="feeds-manage-item organize-row"
+        // 初始不可拖：手柄按下时才切到 draggable（见上面的双通道说明）。
+        // 常驻 draggable 会让「按下手柄才拖」的语义失效，也会在拖拽被原生拖放接管时出现禁止光标。
+        draggable={false}
+      >
+        <span className="feeds-manage-row-handle material-symbols-rounded" title="按住并上下拖动排序">
+          drag_indicator
+        </span>
         <span className="feeds-manage-name" title={feed.url}>
           {feed.title || feed.url}
         </span>
         <div className="feeds-manage-controls">
           <button
             className="f2-mini-btn"
-            onClick={() => onMoveFeed(feed.id, "up")}
+            onClick={() => onMoveFeed(feed.id, "top")}
             disabled={index === 0}
-            title="上移"
+            title="置顶（组内）"
           >
-            <span className="material-symbols-rounded">keyboard_arrow_up</span>
+            <span className="material-symbols-rounded">vertical_align_top</span>
           </button>
           <button
             className="f2-mini-btn"
-            onClick={() => onMoveFeed(feed.id, "down")}
+            onClick={() => onMoveFeed(feed.id, "bottom")}
             disabled={index === total - 1}
-            title="下移"
+            title="置底（组内）"
           >
-            <span className="material-symbols-rounded">keyboard_arrow_down</span>
+            <span className="material-symbols-rounded">vertical_align_bottom</span>
           </button>
           <select
             className="feeds-manage-group-select"
@@ -572,8 +921,9 @@ export function SettingsModal({
     group?: Group,
   ): JSX.Element {
     const groupFeeds = getFeedsByGroup(groupId);
+    const groupKey = groupId ?? "__ungrouped__";
     return (
-      <div key={group?.id ?? "__ungrouped__"} className="feed-group">
+      <div key={group?.id ?? "__ungrouped__"} data-group-key={groupKey} className="feed-group">
         <div className="feed-group-header">
           {group && editingGroupId === group.id ? (
             <input
@@ -730,7 +1080,7 @@ export function SettingsModal({
 
               {/* 全量订阅源列表 */}
               <div className="settings-card settings-card--list">
-                <div className="settings-card-header">
+                <div className="settings-card-header feed-flat-header">
                   <div className="feed-flat-header-left">
                     {feeds.length > 0 && (
                       <label className="feed-checkbox select-all" title="全选订阅源">
@@ -744,7 +1094,72 @@ export function SettingsModal({
                         />
                       </label>
                     )}
-                    <span>全部订阅源 ({feeds.length})</span>
+                    <span className="feed-flat-title">全部订阅源 ({feeds.length})</span>
+                  </div>
+                  {/* 按名称搜索订阅源 */}
+                  <div className="feed-search">
+                    <span className="material-symbols-rounded feed-search-icon">search</span>
+                    <input
+                      className="feed-search-input"
+                      type="search"
+                      value={feedQuery}
+                      onChange={(e) => setFeedQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setFeedQuery("");
+                      }}
+                      placeholder="搜索名称"
+                      aria-label="搜索订阅源名称"
+                    />
+                    {searchingFeeds && (
+                      <button
+                        type="button"
+                        className="feed-search-clear"
+                        onClick={() => setFeedQuery("")}
+                        title="清空搜索"
+                        aria-label="清空搜索"
+                      >
+                        <span className="material-symbols-rounded">close</span>
+                      </button>
+                    )}
+                  </div>
+                  {/* 排序方式：按添加时间（点它切换正序/倒序）/ 按分组 */}
+                  <div className="feed-sort-toggle" role="group" aria-label="排序方式">
+                    <button
+                      type="button"
+                      className={`feed-sort-btn ${feedSortMode === "added" ? "active" : ""}`}
+                      onClick={() => {
+                        // 不在「按添加时间」时先切过来；已经在时切换方向
+                        if (feedSortMode !== "added") changeFeedSortMode("added");
+                        else toggleFeedSortDirection();
+                      }}
+                      aria-label={
+                        feedSortMode !== "added"
+                          ? "按添加时间排序，最新添加在前"
+                          : feedSortDirection === "desc"
+                            ? "按添加时间排序，当前最新在前，点击切换为最早在前"
+                            : "按添加时间排序，当前最早在前，点击切换为最新在前"
+                      }
+                      title={
+                        feedSortMode !== "added"
+                          ? "按添加时间排序（最新添加在前）"
+                          : feedSortDirection === "desc"
+                            ? "最新添加在前 · 点击切换为最早在前"
+                            : "最早添加在前 · 点击切换为最新在前"
+                      }
+                    >
+                      按添加时间
+                      <span className="material-symbols-rounded feed-sort-arrow">
+                        {feedSortDirection === "desc" ? "arrow_downward" : "arrow_upward"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`feed-sort-btn ${feedSortMode === "group" ? "active" : ""}`}
+                      onClick={() => changeFeedSortMode("group")}
+                      title="按分组排序（分组先后 + 组内顺序）"
+                    >
+                      按分组
+                    </button>
                   </div>
                   {checkedFeedIds.size > 0 && (
                     <div className="feed-check-toolbar">
@@ -761,10 +1176,12 @@ export function SettingsModal({
                 </div>
                 {feeds.length === 0 ? (
                   <div className="feeds-group-empty">还没有订阅源</div>
+                ) : visibleFeeds.length === 0 ? (
+                  <div className="feeds-group-empty">没有匹配「{feedQuery.trim()}」的订阅源</div>
                 ) : (
                   <>
                     <ul className="feeds-manage-list">
-                      {sortedFeeds.map((feed) => (
+                      {visibleFeeds.map((feed) => (
                         <li key={feed.id} className={`feeds-manage-item ${checkedFeedIds.has(feed.id) ? "checked" : ""}`}>
                           <label className="feed-checkbox">
                             <input
@@ -784,6 +1201,11 @@ export function SettingsModal({
                         </li>
                       ))}
                     </ul>
+                    {searchingFeeds && (
+                      <div className="feeds-search-hint">
+                        匹配 {visibleFeeds.length} / {feeds.length} 个订阅源
+                      </div>
+                    )}
 
                     {/* 单选编辑面板 */}
                     {checkedFeedIds.size === 1 && (() => {
@@ -880,11 +1302,16 @@ export function SettingsModal({
                 </div>
               </div>
 
-              {renderGroupBlock("未分组", null, -1, groups.length)}
+              {/* 拖拽排序的监听挂在这个容器上（原生事件，见上方 organizeListRef 说明）。
+                  容器本身不参与 keyed 重建：行/分组的顺序由各自的 key 驱动，重建容器会把
+                  拖拽过程中的 DOM 状态（拖拽中、落点提示）一起清掉。 */}
+              <div ref={organizeListRef}>
+                {renderGroupBlock("未分组", null, -1, groups.length)}
 
-              {groups.map((g, gi) =>
-                renderGroupBlock(g.name, g.id, gi, groups.length, g),
-              )}
+                {groups.map((g, gi) =>
+                  renderGroupBlock(g.name, g.id, gi, groups.length, g),
+                )}
+              </div>
             </div>
           )}
 

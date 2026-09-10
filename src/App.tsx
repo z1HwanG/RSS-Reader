@@ -15,6 +15,10 @@ import * as rssService from "./features/rss/services/rssService";
 import * as updateService from "./features/rss/services/updateService";
 import type { AppState, Article, Feed, FetchResult, Group } from "./features/rss/types";
 import { articleKey } from "./features/rss/types";
+import { dedupeArticlesById } from "./lib/articleDedupe";
+import { filterArticles } from "./lib/articleFilter";
+import { reorderFeedsInGroup, type FeedMovePosition } from "./lib/feedOrder";
+import { useResetScrollOnChange } from "./lib/scrollReset";
 import { call } from "./lib/tauri";
 import {
   applyTheme,
@@ -112,8 +116,23 @@ function App(): JSX.Element {
   prefsRef.current = prefs;
   // 文章列表渲染上限：大列表分批渲染，滚动到底部自动加载更多
   const [renderLimit, setRenderLimit] = useState(300);
+  // 阅读区滚动容器：切换文章时回到顶部，避免沿用上一篇的阅读位置
+  const readerRef = useResetScrollOnChange<HTMLElement>(selectedArticleId);
   // 搜索关键字（会话内状态，不持久化）
   const [searchQuery, setSearchQuery] = useState("");
+  // 抽屉里的「收藏」视图（跨订阅源看星标文章）：
+  // 与顶栏筛选里的「仅星标文章」（prefs.viewFilter）是两件事，互不干扰——
+  // 抽屉的「收藏」不改写筛选偏好，顶栏切「全部 / 未读」也不会把抽屉的收藏视图改掉。
+  //
+  // 实现说明：这里用 ref 承载值、用「换一个新对象」触发重渲染。
+  // 该视图只是过滤条件 + 高亮，不需要参与并发渲染的值比较；这样也避开了与其它
+  // setState 同批处理时被丢弃的问题（同 handler 内的 setSelectedFeedId 正常生效）。
+  const starredViewRef = useRef(false);
+  const [, setStarredViewTick] = useState<{ v: boolean }>({ v: false });
+  const setStarredView = useCallback((next: boolean) => {
+    starredViewRef.current = next;
+    setStarredViewTick({ v: next });
+  }, []);
 
   // 文章统计：分源未读数、总未读、收藏总数、各档位待清理数——一次遍历全部算出
   const stats = useMemo(() => {
@@ -182,7 +201,19 @@ function App(): JSX.Element {
   useEffect(() => {
     rssService
       .loadState()
-      .then(setState)
+      .then((loaded) => {
+        // 旧版数据可能给同一篇文章留下两条 id 相同的记录（entry_key 是后加的字段）。
+        // 重复 id 会让 React 的列表 key 撞车、残留旧 DOM 节点，必须先合并再入库。
+        const articles = dedupeArticlesById(loaded.articles);
+        if (articles === null) {
+          setState(loaded);
+          return;
+        }
+        const next: AppState = { ...loaded, articles };
+        setState(next);
+        // 落盘自愈：避免每次启动都重复合并，也让后续刷新在干净数据上做去重
+        void rssService.saveState(next);
+      })
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
   }, []);
@@ -240,6 +271,7 @@ function App(): JSX.Element {
       if (existing) {
         setSelectedFeedId(existing.id);
         setSelectedArticleId(null);
+        setStarredView(false);
         addMessage("info", `已订阅该源：${existing.title || existing.url}`);
         return;
       }
@@ -296,12 +328,18 @@ function App(): JSX.Element {
     }
   }, [selectedArticleId, state.articles]);
 
-  /** 选中订阅源 */
+  /**
+   * 选中订阅源。
+   * 注意：只在真正选中某个源（feedId 非 null）时退出抽屉的「收藏」视图。
+   * 抽屉「收藏」本身也要把订阅源清空（feedId = null），若无条件重置收藏视图，
+   * 同一次点击里「进入收藏」会被这次重置覆盖掉（表现为点了收藏没反应）。
+   */
   const handleSelectFeed = useCallback((feedId: string | null) => {
     setSelectedFeedId(feedId);
     setSelectedArticleId(null);
+    if (feedId !== null) setStarredView(false);
     setDrawerOpen(false);
-  }, []);
+  }, [setStarredView]);
 
   /** 选中文章（引用保持稳定：依赖 state 会让每次标记已读都重建，导致列表全量重渲染） */
   const handleSelectArticle = useCallback((articleId: string) => {
@@ -481,14 +519,17 @@ function App(): JSX.Element {
   /** 抽屉「全部文章」：清空订阅源选择并重置筛选条件 */
   const handleSelectAllFeeds = useCallback(() => {
     updatePrefs({ viewFilter: "all" });
+    setStarredView(false);
     handleSelectFeed(null);
   }, [updatePrefs, handleSelectFeed]);
 
-  /** 抽屉「收藏」：跨订阅源查看星标文章 */
+  /** 抽屉「收藏」：跨订阅源查看星标文章（独立的会话视图，不改写筛选偏好） */
   const handleSelectStarred = useCallback(() => {
-    updatePrefs({ viewFilter: "starred" });
-    handleSelectFeed(null);
-  }, [updatePrefs, handleSelectFeed]);
+    setStarredView(true);
+    setSelectedFeedId(null);
+    setSelectedArticleId(null);
+    setDrawerOpen(false);
+  }, [setStarredView]);
 
   /** 添加订阅源（重复订阅同一 URL 时视为刷新该源，不重复写入） */
   const handleAddFeed = useCallback(async (url: string) => {
@@ -893,8 +934,16 @@ function App(): JSX.Element {
     });
   }, []);
 
-  /** 同组内上移/下移订阅源 */
-  const handleMoveFeed = useCallback((feedId: string, direction: "up" | "down") => {
+  /**
+   * 同组内移动订阅源。
+   * `beforeId` 为「拖拽到某个源之前」，优先级最高；否则按 `position` 处理。
+   * 具体重排规则在纯函数 `reorderFeedsInGroup` 里（已单独验证）。
+   */
+  const handleMoveFeed = useCallback((
+    feedId: string,
+    position: FeedMovePosition,
+    beforeId?: string | null,
+  ) => {
     setState((prev) => {
       const feed = prev.feeds.find((f) => f.id === feedId);
       if (!feed) return prev;
@@ -903,13 +952,8 @@ function App(): JSX.Element {
         .filter((f) => f.group_id === feed.group_id)
         .sort((a, b) => a.sort_order - b.sort_order);
 
-      const idx = groupFeeds.findIndex((f) => f.id === feedId);
-      const targetIdx = direction === "up" ? idx - 1 : idx + 1;
-      if (idx === -1 || targetIdx < 0 || targetIdx >= groupFeeds.length) return prev;
-
-      // 交换并重新索引
-      [groupFeeds[idx], groupFeeds[targetIdx]] = [groupFeeds[targetIdx], groupFeeds[idx]];
-      const reindexed = groupFeeds.map((f, i) => ({ ...f, sort_order: i }));
+      const reindexed = reorderFeedsInGroup(groupFeeds, feedId, position, beforeId);
+      if (reindexed === null) return prev;
 
       const others = prev.feeds.filter((f) => f.group_id !== feed.group_id);
       const next = { ...prev, feeds: [...others, ...reindexed] };
@@ -988,8 +1032,11 @@ function App(): JSX.Element {
       });
       if (!filePath) return;
       const restored = await rssService.restoreState(filePath);
-      setState(restored);
-      void rssService.saveState(restored);
+      // 备份文件可能来自旧版本：同样先合并重复 id 再入库
+      const articles = dedupeArticlesById(restored.articles);
+      const next: AppState = articles === null ? restored : { ...restored, articles };
+      setState(next);
+      void rssService.saveState(next);
       setSelectedFeedId(null);
       setSelectedArticleId(null);
       setError(null);
@@ -1006,16 +1053,15 @@ function App(): JSX.Element {
   // 过滤当前显示的文章列表（按订阅源 + 筛选 + 搜索 + 视图设置过滤，再排序）
   // 注意：必须在 if (loading) 早退之前调用（Rules of Hooks），
   // 否则首次渲染与重渲染的 hook 数量不一致会导致 React 崩溃白屏。
+  // starredView 取自 ref（见上方说明），用局部常量绑定，保证放进依赖数组时能被正确比较。
+  const starredView = starredViewRef.current;
   const visibleArticles = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const filtered = state.articles.filter((a) => {
-      if (selectedFeedId && a.feed_id !== selectedFeedId) return false;
-      // 视图筛选与搜索是并列条件：任一不满足即过滤掉。
-      // （此前用早退写法，导致「未读 / 收藏」视图下搜索框输入被静默忽略）
-      if (prefs.viewFilter === "unread" && a.read) return false;
-      if (prefs.viewFilter === "starred" && !a.starred) return false;
-      if (query && !(searchIndex.get(a.id) ?? "").includes(query)) return false;
-      return true;
+    const filtered = filterArticles(state.articles, {
+      selectedFeedId,
+      starredView,
+      prefs,
+      searchQuery,
+      searchIndex,
     });
 
     // 预解析发布时间戳：排序比较器里反复 new Date() 解析在大列表下开销显著
@@ -1039,7 +1085,7 @@ function App(): JSX.Element {
       decorated.sort((x, y) => y.ts - x.ts);
     }
     return decorated.map((d) => d.a);
-  }, [state.articles, selectedFeedId, prefs.viewFilter, prefs.viewSort, feedTitleById, searchQuery, searchIndex]);
+  }, [state.articles, selectedFeedId, prefs.viewFilter, prefs.viewSort, feedTitleById, searchQuery, searchIndex, starredView]);
 
   // 仅渲染前 renderLimit 条；滚动到底部由 ArticleList 触发加载更多
   const shownArticles = useMemo(
@@ -1106,21 +1152,22 @@ function App(): JSX.Element {
             onSelect={handleSelectArticle}
             currentFeedName={currentFeedName}
             title={
-              !selectedFeed && prefs.viewFilter === "starred" ? "收藏" : undefined
+              !selectedFeed && (starredView || prefs.viewFilter === "starred") ? "收藏" : undefined
             }
             total={visibleArticles.length}
             hasMore={hasMoreArticles}
             onLoadMore={handleLoadMore}
             viewMode={prefs.viewMode}
+            resetKey={`${selectedFeedId ?? "all"}|${starredView ? "starred-drawer" : prefs.viewFilter}|${prefs.viewSort}|${prefs.viewMode}|${searchQuery.trim()}`}
             feedTitles={feedTitleById}
             emptyHint={
               searchQuery.trim()
                 ? "没有匹配的文章，换个关键字试试"
-                : prefs.viewFilter === "starred"
+                : starredView || prefs.viewFilter === "starred"
                   ? "还没有收藏的文章，打开文章后点「收藏」即可加入"
                   : undefined
             }
-            emptyIcon={prefs.viewFilter === "starred" ? "star" : undefined}
+            emptyIcon={starredView || prefs.viewFilter === "starred" ? "star" : undefined}
             onOpenExternal={handleOpenArticleExternal}
             onToggleRead={handleSetRead}
             onToggleStar={handleToggleStarred}
@@ -1130,8 +1177,8 @@ function App(): JSX.Element {
 
         <div className="resizer" onMouseDown={handleResizeStart} />
 
-        {/* 右侧 — 阅读视图 */}
-        <section className="app-reader">
+        {/* 右侧 — 阅读视图（滚动容器本身：切换文章时滚动位置重置到顶部） */}
+        <section className="app-reader" ref={readerRef}>
           {selectedArticle ? (
             <ArticleView
               article={selectedArticle}
@@ -1162,7 +1209,7 @@ function App(): JSX.Element {
               selectedFeedId={selectedFeedId}
               unreadCounts={stats.unreadCounts}
               starredCount={stats.starredTotal}
-              starredActive={selectedFeedId === null && prefs.viewFilter === "starred"}
+              starredActive={starredView}
               onSelectAll={handleSelectAllFeeds}
               onSelectStarred={handleSelectStarred}
               onSelect={handleSelectFeed}

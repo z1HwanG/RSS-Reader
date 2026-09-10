@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.3.2`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.3.3`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
@@ -36,6 +36,8 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 
 - 添加 / 编辑 / 删除 RSS 2.0、RSS 1.0、Atom 与 JSON Feed 订阅源
 - 分组管理：新建 / 重命名 / 删除分组，订阅源可在分组间调整，列表按分组折叠展示并显示未读数
+- 手动排序：设置 →「分组与排序」按「分组 + 组内顺序」展示全部订阅源 —— 按住行首手柄拖动可落到任意
+  位置（支持跨分组），或用每行的「置顶 / 置底」一步到底；组内顺序持久化，侧栏与列表都按它排列
 - OPML 批量导入 / 导出（导入后自动在后台并发刷新新增源）
 - 每个订阅源可单独设置「应用内阅读」或「外部浏览器打开」
 - 条件请求（`ETag` / `Last-Modified`）：订阅源未变化时服务端返回 304，跳过下载与解析
@@ -95,7 +97,7 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 | 桌面壳 | Tauri 2（Rust） |
 | 前端 | React 18 + TypeScript（strict）+ Vite 5 |
 | 样式 | 原生 CSS，Fluent 2 设计语言（含 light / dark 主题变量） |
-| 图标 | Material Symbols Rounded（本地子集化，约 37 KB） |
+| 图标 | Material Symbols Rounded（本地子集化，约 44 KB） |
 | Feed 解析 | feed-rs 2（RSS 2.0/1.0、Atom、JSON Feed） |
 | HTTP | reqwest 0.12（rustls TLS、http2、gzip / brotli / deflate、system-proxy、socks） |
 | Tauri 插件 | @tauri-apps/plugin-opener、@tauri-apps/plugin-dialog、@tauri-apps/plugin-updater、@tauri-apps/plugin-process |
@@ -212,7 +214,7 @@ npm run tauri build  # 打包当前平台安装包（Windows .msi/.exe、macOS .
 ### 图标字体子集化
 
 图标使用本地化的 Material Symbols Rounded 并已子集化：完整可变字体约 5 MB，
-项目只用到 40 余个图标，子集后约 37 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
+项目只用到 40 余个图标，子集后约 44 KB（保留 `rlig` 连字与 `FILL` 可变轴）。
 
 新增图标后重新生成：
 
@@ -228,7 +230,7 @@ node scripts/subset-icons.mjs   # 需要 uv 与网络（从 Google Fonts 取完�
 | 快捷键 | 作用 |
 |--------|------|
 | `Ctrl / Cmd + F` | 聚焦并全选搜索框 |
-| `Esc` | 清空搜索并退出输入框；关闭设置等弹窗 |
+| `Esc` | 清空搜索并退出输入框；放弃「分组与排序」里正在进行的拖拽；关闭设置等弹窗 |
 | `Enter` | 确认分组重命名、添加订阅源、提交标题 / URL 编辑 |
 
 ## 架构说明

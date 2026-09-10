@@ -8,6 +8,186 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] - 2026-09-10
+
+### 新增 / Added
+
+- 设置 →「订阅源 → 全部订阅源」新增**按名称搜索**：与排序方式叠加（搜索结果仍按当前排序/分组
+  顺序排列），无匹配时给出提示，带一键清空；搜索状态下的「全选」只作用于当前可见项。
+  过滤规则抽成纯函数 `filterFeedsByName`（`src/lib/feedOrder.ts`），同时匹配显示名与订阅地址。
+  Settings → Feeds → "All feeds" gained a **search by name** box: it composes with the active sort
+  mode (results keep the current order/grouping), shows a hint when nothing matches, has a one-click
+  clear, and "select all" only applies to the currently visible rows while searching. The rule lives
+  in the pure helper `filterFeedsByName` (`src/lib/feedOrder.ts`) and matches both the display name
+  and the feed URL.
+- 设置 →「分组与排序」支持一步到位的排序，不再只能逐格挪动：
+  - 每行新增**置顶 / 置底**按钮（组内一步到底）；
+  - 按住行首手柄可**拖拽**：拖到另一行上方即插到它之前，拖到分组末尾的空白即放到该组最后，
+    跨分组拖拽会自动改归属并落位。
+  重排规则抽成纯函数 `reorderFeedsInGroup`（`src/lib/feedOrder.ts`），`sort_order` 仍是组内序号，
+  每次移动只重排同组并重新编号。
+  Settings → "Groups & order" can now reorder in one step instead of nudging row by row:
+  - new **move to top / move to bottom** buttons per row;
+  - holding the row's drag handle and **dragging** works too: drop onto a row to insert before it, drop
+    into the gap at a group's end to move it last in that group, and dragging across groups reassigns
+    the feed and places it in one go.
+  The rule lives in the pure helper `reorderFeedsInGroup` (`src/lib/feedOrder.ts`); `sort_order` remains
+  a per-group index, so each move reorders only that group and renumbers it 0..n-1.
+- 图标字体子集补充 `vertical_align_top` / `vertical_align_bottom` / `drag_indicator`
+  （`node scripts/subset-icons.mjs`，51 个图标、连字校验全部通过）。
+  Added `vertical_align_top` / `vertical_align_bottom` / `drag_indicator` to the icon-font subset
+  (`node scripts/subset-icons.mjs`; 51 icons, all ligatures verified).
+
+### 变更 / Changed
+
+- 设置 →「分组与排序」的移动按钮收敛为**置顶 / 置底**，逐格挪动交给拖拽：原来每行还有上移 / 下移
+  两个按钮，与拖动排序重复且更容易误点。现在按钮负责「一步到底」，拖拽负责落到任意位置。
+  Settings → "Groups & order" now keeps only **move to top / move to bottom** buttons; nudging a row
+  one step at a time is left to dragging. The per-row move-up / move-down buttons were redundant with
+  drag reordering and easy to mis-click, so the buttons handle "one step to either end" and dragging
+  handles landing anywhere.
+- 重排「全部订阅源」列表头部：原先标题与搜索/排序/选框挤在一行，窗口稍窄时标题会被压成竖排。
+  现在头部可换行——搜索框可压缩，选中项工具栏在空间不足时自动折到第二行。
+  Reflowed the "All feeds" header: the title used to be squeezed into a vertical column when the
+  search / sort / selection controls crowded the same row. The header now wraps — the search box can
+  shrink, and the selection toolbar moves to a second row when space runs out.
+- 设置 →「订阅源 → 全部订阅源」列表头部新增排序方式切换：**按添加时间**与**按分组**
+  （分组先后 + 组内顺序，未分组排最后）。「按添加时间」按钮自带方向：默认**最新添加在前**，
+  再点同一个按钮切换为**最早添加在前**（按钮内箭头随方向变化），方式与方向都记在 `localStorage`。
+  排序规则抽成纯函数 `src/lib/feedOrder.ts`；它只影响设置面板的展示顺序，不改动订阅源本身，
+  也不在此列表里提供上下移按钮（手动排序仍在「分组与排序」页签）。
+  Settings → Feeds → "All feeds" now has a sort selector: **by date added** and **by group** (group
+  order, then the order inside each group; ungrouped feeds last). The "by date added" button carries
+  its own direction: newest first by default, and clicking the same button again flips it to oldest
+  first (the arrow inside the button follows the direction). Both the mode and the direction are kept
+  in `localStorage`. The rules live in the pure helper `src/lib/feedOrder.ts`; they only affect how
+  the settings list is displayed — the feeds are not modified, and this list carries no move-up /
+  move-down buttons (manual ordering still lives in the "Groups & order" tab).
+
+### 修复 / Fixed
+
+- 设置 →「分组与排序」里点**置顶 / 置底**（以及当时的置顶 / 置底 / 上移 / 下移）界面顺序不变：
+  该页签渲染的是「订阅源」页签的排序结果，而它默认「按添加时间」——时间戳相同时才退回
+  `sort_order`，于是按钮改了组内序号，界面仍按时间戳排。现在排序页签固定按「分组 + 组内
+  `sort_order`」渲染（新增纯函数 `sortFeedsByGroupOrder`），「按添加时间」只作用于「订阅源」页签。
+  In Settings → "Groups & order", clicking **move to top / move to bottom** (and the move up / down
+  buttons that existed then) left the list unchanged: the tab rendered the result of the "Feeds" tab's
+  sort mode, which defaults to **by date added** and only falls back to `sort_order` when timestamps
+  tie — so the buttons rewrote the per-group index while the view kept sorting by timestamp. The
+  ordering tab now always renders by group + per-group `sort_order` (new pure helper
+  `sortFeedsByGroupOrder`), and "by date added" only affects the "Feeds" tab.
+- 拖到分组末尾（最后一行下方的空白）不放行：落点提交复用了 `position: "top"`，而纯函数把
+  「`beforeId` 为 null + top」解释成「移到首位」，该项已在首位时判定原地不动。现在按落点语义
+  传档位——有落点行插到它之前，没有落点行则置底。
+  Dropping into the gap below a group's last row did nothing: the drop handler reused
+  `position: "top"`, and the pure helper reads "`beforeId` is null + top" as **move to first** — a
+  no-op when the item is already first. The handler now passes a position that matches the drop
+  target: insert before the row under the pointer, or move to the end when there is none.
+- **拖动排序完全不可用（整片区域显示「禁止」光标，拖不动）**，三个原因叠加：
+  - Tauri 窗口默认 `dragDropEnabled: true`，Windows 上 WebView2 会接管拖放，HTML5 拖拽事件根本
+    到不了页面 —— 这正是禁止光标的来源。现已在窗口配置里关闭原生拖放（应用不使用系统级文件拖放）；
+  - `setPointerCapture` 在指针非激活时抛 `NotFoundError`，把整个 `pointerdown` 处理器从中间打断，
+    拖拽状态建不起来。现在捕获失败只降级（拖出窗口外会断线），不再中断处理；
+  - 监听器的 effect 依赖里带着 `feeds`，每次重排都重建监听 —— 落点提交那一刻正好把正在处理的
+    事件链一起拆掉。现在只依赖页签，订阅源数据经 ref 读取，行顺序由 key 驱动。
+  拖拽因此改为**双通道**且互斥：原生 HTML5 拖拽可用时走 dragstart/dragover/drop（`draggable`
+  只在手柄按下时置位，避免常驻 draggable 带来的禁止光标），原生被接管时改用指针自绘拖拽
+  （手柄按下 + 4px 阈值起步，落点画插入线、目标分组高亮，支持拖到分组末尾、跨分组、上下边缘
+  自动滚动、按 Esc 放弃）。两条通道都在真实浏览器里跑过端到端验证；监听仍走 `addEventListener`，
+  与 React 的异步渲染时序解耦，`dragover` 一律同步 `preventDefault`。
+  **Dragging to reorder did not work at all** (the whole area showed the forbidden cursor), from three
+  compounding causes:
+  - Tauri windows default to `dragDropEnabled: true`, so on Windows WebView2 takes over drag & drop and
+    HTML5 drag events never reach the page — the source of the forbidden cursor. Native drag & drop is
+    now disabled in the window config (the app does not use system-level file drops);
+  - `setPointerCapture` throws `NotFoundError` when the pointer is not active, which aborted the whole
+    `pointerdown` handler mid-way so the drag state was never established. A failed capture now only
+    degrades (dragging outside the window loses the pointer), it no longer aborts the handler;
+  - the listener effect depended on `feeds`, so every reorder re-registered the listeners — and the
+    moment a drop was committed it tore down the very event chain handling it. It now depends only on
+    the active tab, reads feed data through a ref, and lets row keys drive reordering.
+  Dragging is therefore **dual-channel** and mutually exclusive: native HTML5 drag & drop when the
+  platform allows it (`draggable` is set only while the handle is held down, avoiding the forbidden
+  cursor a permanently draggable row produces), and a pointer-driven fallback when native drag & drop
+  is intercepted (press the handle, 4 px threshold, insertion line plus target-group highlight, drop
+  at a group's end, cross-group moves, auto-scroll at the edges, Esc to cancel). Both channels were
+  verified end to end in a real browser.
+- 设置面板里的订阅源列表不再用 `useMemo` 缓存排序结果（只有几十个订阅源，排序开销可忽略），
+  避免任何缓存使用户看到旧的顺序。
+  The settings panel no longer memoizes the sorted feed list (a few dozen feeds sort instantly), so a
+  stale cache can never show an outdated order.
+
+- 图标字体子集缺少 `arrow_downward` / `arrow_upward`，排序按钮里会漏出图标文字。
+  已运行 `node scripts/subset-icons.mjs` 重新生成子集（47 个图标，连字校验全部通过）。
+  The icon-font subset was missing `arrow_downward` / `arrow_upward`, so the sort button showed the
+  raw ligature text. The subset was regenerated with `node scripts/subset-icons.mjs` (47 icons, all
+  ligatures verified).
+
+- `npm run tauri dev` 会整个崩掉、窗口页面冻在崩溃前的内容上（看起来像「改了代码却没生效」）：
+  编辑器 / 工具保存文件时是「先写临时文件再改名」（如 `src/.App.tsx.<pid>.<uuid>.tmpdir/App.tsx.tmp`），
+  chokidar 可能刚好在临时文件被删除的瞬间去 watch 它，Windows 抛 `EBUSY: resource busy or locked`；
+  chokidar 的 `isFatalError` 只把 EACCES / EPERM 当致命错误，EBUSY 不是，但无人处理 `error` 事件时
+  Node 会把它抛到进程顶层，vite 直接退出，`tauri dev` 随之报 `beforeDevCommand terminated`。
+  现在 `vite.config.ts` 里加了 `fileWatchGuard` 插件：只把**资源占用类且带临时文件特征**的监听错误
+  降级为警告（`EBUSY` / `ENOENT` / `ENOTDIR` + `.tmpdir` / `.tmp`），其余监听错误照旧抛出、照旧退出，
+  不会把真问题一起吞掉。
+  `npm run tauri dev` used to die outright and leave the window frozen on the pre-crash page (which
+  looks like "I changed the code but nothing happened"): editors and tools save by writing a temp
+  file and renaming it (e.g. `src/.App.tsx.<pid>.<uuid>.tmpdir/App.tsx.tmp`), chokidar can try to
+  watch it in the instant it is deleted, and Windows raises `EBUSY: resource busy or locked`.
+  chokidar's `isFatalError` only treats EACCES / EPERM as fatal, so EBUSY is not — but with no
+  `error` listener attached, Node throws it to the top level, vite exits, and `tauri dev` reports
+  "beforeDevCommand terminated". `vite.config.ts` now carries a `fileWatchGuard` plugin that
+  downgrades only resource-contention watch errors that mention a temp file (`EBUSY` / `ENOENT` /
+  `ENOTDIR` + `.tmpdir` / `.tmp`) to a warning; every other watch error is still thrown and still
+  exits, so real problems are not swallowed.
+
+- 抽屉里的「收藏」不再与顶栏筛选里的「仅星标文章」绑定：此前抽屉「收藏」会直接改写持久化的
+  `viewFilter` 偏好，顶栏再切「全部 / 未读」又会反过来清掉收藏视图。现在「收藏」是独立的
+  会话视图（`src/lib/articleFilter.ts`）：进入收藏视图不改动筛选偏好，退出后回到原来的
+  「全部 / 未读 / 仅星标」；收藏视图内只看星标文章，不受「未读」等筛选影响（否则已读的
+  收藏文章会被滤掉，收藏就不完整了）。选中具体订阅源或点「全部文章」会退出该视图。
+  The drawer's "Starred" entry no longer shares state with the top bar's "starred only" filter:
+  it used to overwrite the persisted `viewFilter` preference, and switching the top bar back to
+  "all / unread" would in turn clear the starred view. "Starred" is now an independent
+  session-scoped view (`src/lib/articleFilter.ts`): opening it leaves the filter preference
+  untouched, closing it returns to the previous all / unread / starred-only filter, and inside the
+  starred view only starred articles are shown regardless of that filter (otherwise read-and-starred
+  articles would be filtered out and the view would be incomplete). Selecting a feed or "all
+  articles" leaves the starred view.
+- 实现细节：`handleSelectFeed(null)` 内部原先无条件重置收藏视图，而抽屉「收藏」本身也要把订阅源
+  清空，于是同一次点击里「进入收藏」会被该重置覆盖，表现为点了收藏没反应。现在只在传入具体
+  `feedId` 时退出收藏视图。
+  Detail: `handleSelectFeed(null)` used to reset the starred view unconditionally, but the drawer's
+  own "Starred" entry also clears the feed selection, so entering the starred view and that reset
+  landed in the same batch and cancelled each other out (clicking "Starred" appeared to do nothing).
+  The starred view now exits only when a concrete `feedId` is passed.
+
+- 选中订阅源后列表仍混着其他源的文章：旧版写入的文章没有 `entry_key` 字段，
+  抓取侧去重按「entry_key → 链接 → 标题」建已知集合，这些老行匹配不上，于是同一篇文章以
+  **同一个 id** 留下两条记录（实测 433 组、其中 188 组已读状态还不一致）。React 的列表 key
+  撞车后，协调过程不会清理上一次渲染的 DOM 节点，列表里就会残留别的源的文章。
+  现在载入 / 还原状态时按 id 合并重复记录（`src/lib/articleDedupe.ts`，已读取并集、
+  `entry_key` 取有值的那份）并回写磁盘自愈；列表 key 追加下标作为兜底。
+  Selecting a feed left articles from other feeds mixed into the list: articles written by older
+  versions carry no `entry_key`, and fetch-side dedup builds its known-key set from
+  `entry_key → link → title`, so those legacy rows never matched and the same entry ended up stored
+  twice under the **same id** (433 groups measured, 188 of them disagreeing on read state). React
+  then logged "Encountered two children with the same key" and, on a key collision, reconciliation
+  leaves the previous render's DOM nodes behind — hence the foreign articles. State load / restore
+  now merges duplicate ids (`src/lib/articleDedupe.ts`: read and starred are unioned, `entry_key`
+  prefers the non-null one) and writes the healed state back; list keys also carry the index as a
+  fallback.
+- 切换文章后右侧阅读区仍停在上一篇的滚动位置：滚动容器（`.app-reader`）在 React 里是复用同一个
+  DOM 节点的，浏览器会原样保留 `scrollTop`。切换订阅源 / 筛选 / 排序 / 搜索时文章列表
+  （`.article-items`）同理。现在两处都在内容集合变化时回到顶部（`src/lib/scrollReset.ts`，
+  用 `useLayoutEffect` 在绘制前归零，避免闪一帧旧位置）。
+  After switching articles the reading pane kept the previous article's scroll position, and the
+  article list kept its offset when the feed / filter / sort / search changed — both are the same
+  recycled scroll container, so the browser preserved `scrollTop`. Both now scroll back to the top
+  when the content set changes (`src/lib/scrollReset.ts`, using `useLayoutEffect` so the reset lands
+  before paint).
+
 ## [0.3.2] - 2026-09-10
 
 ### 修复 / Fixed
@@ -182,7 +362,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.2...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/z1HwanG/RSS-Reader/compare/v0.2.1...v0.3.0

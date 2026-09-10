@@ -17,9 +17,6 @@ dist/
 # Logs
 *.log
 
-# 本地草稿（不随仓库发布）
-blog/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -29,3 +26,6 @@ desktop.ini
 .idea/
 .vscode/
 *.code-workspace
+
+# 本地验证脚本（不进仓库）
+.verify/

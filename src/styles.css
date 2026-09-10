@@ -1995,11 +1995,162 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+/* 「全部订阅源」列表头部：左侧标题、中间搜索与排序、右侧选框工具栏
+   —— 用 flex-wrap 替代 space-between：空间不足时整体换行，而不是把标题挤成竖排 */
+.settings-card-header.feed-flat-header {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.feed-flat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.feed-flat-title {
+  white-space: nowrap;
+}
+
+/* 头部右侧：排序方式切换 + 搜索 + 选框工具栏 */
+.feed-flat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 按名称搜索订阅源 */
+.feed-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-bg-base);
+  /* 宽度可压缩：窗口窄时先缩小搜索框，其余控件保持完整 */
+  flex: 0 1 150px;
+  min-width: 96px;
+  margin-left: auto;
+}
+
+.feed-search:focus-within {
+  border-color: var(--f2-accent-fg);
+}
+
+.feed-search-icon {
+  font-size: 15px;
+  color: var(--f2-text-3);
+  flex-shrink: 0;
+}
+
+.feed-search-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--f2-text-1);
+  font-size: 12px;
+  outline: none;
+}
+
+.feed-search-input::placeholder {
+  color: var(--f2-text-3);
+}
+
+/* 去掉 type=search 自带的清除按钮，统一用自己的 */
+.feed-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.feed-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  color: var(--f2-text-3);
+  flex-shrink: 0;
+}
+
+.feed-search-clear .material-symbols-rounded {
+  font-size: 14px;
+}
+
+.feed-search-clear:hover {
+  background: var(--f2-fill-subtle-hover);
+  color: var(--f2-text-1);
+}
+
+/* 搜索时的匹配结果提示 */
+.feeds-search-hint {
+  padding: 6px 12px 10px;
+  font-size: 12px;
+  color: var(--f2-text-3);
+}
+
+/* 排序方式：分段控件（按添加时间 / 按分组） */
+.feed-sort-toggle {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-bg-base);
+  flex: 0 0 auto;
+}
+
+.feed-sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: calc(var(--f2-radius-sm) - 1px);
+  background: transparent;
+  color: var(--f2-text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background var(--f2-dur-1) var(--f2-ease), color var(--f2-dur-1) var(--f2-ease);
+}
+
+.feed-sort-btn:hover:not(.active) {
+  background: var(--f2-fill-subtle-hover);
+  color: var(--f2-text-1);
+}
+
+.feed-sort-btn.active {
+  background: var(--f2-accent-soft);
+  color: var(--f2-accent-fg);
+  font-weight: 600;
+}
+
+/* 「按添加时间」按钮内的方向箭头（默认不显示，选中该方式时才显示） */
+.feed-sort-arrow {
+  font-size: 15px;
+  display: none;
+}
+
+.feed-sort-btn.active .feed-sort-arrow {
+  display: inline-block;
+}
+
 /* 选框工具栏 */
 .feed-check-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
 }
 
 .feed-check-count {
@@ -2441,6 +2592,53 @@ textarea:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* 「分组与排序」页签：可拖拽的行 + 拖拽落点提示 */
+.organize-row .feeds-manage-row-handle {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--f2-text-3);
+  cursor: grab;
+  user-select: none;
+  /* 手柄按下后靠指针事件自绘拖拽，禁掉浏览器自身的平移/选择手势 */
+  touch-action: none;
+}
+
+.organize-row:active .feeds-manage-row-handle {
+  cursor: grabbing;
+}
+
+.organize-row.dragging {
+  opacity: 0.45;
+}
+
+/* 拖拽进行中：整片列表给出「可放置」的视觉提示 + 全局抓取光标 */
+.organize-dragging {
+  cursor: grabbing;
+}
+
+.organize-dragging .feed-group {
+  outline: 1px dashed color-mix(in srgb, var(--f2-accent-fg) 45%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--f2-radius-sm);
+}
+
+/* 拖拽中禁止选中行内文字（否则拖动会变成划选） */
+.organize-dragging .organize-row {
+  user-select: none;
+}
+
+/* 落点指示：拖到这一行上方插入 */
+.organize-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--f2-accent-fg);
+}
+
+/* 落点指示：拖到分组末尾（追加到最后一行之后） */
+.feed-group.drop-here {
+  outline: 1px solid var(--f2-accent-fg);
+  outline-offset: 2px;
+  border-radius: var(--f2-radius-sm);
 }
 
 /* ================================================================
