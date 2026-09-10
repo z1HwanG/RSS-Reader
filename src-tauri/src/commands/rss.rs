@@ -76,6 +76,11 @@ pub struct Feed {
     /// 上次抓取响应的 Last-Modified（条件请求用）
     #[serde(default)]
     pub last_modified: Option<String>,
+    /// 该源本地文章数的历史最高值（清理缓存的水位线）。
+    /// 本地篇数低于它说明文章被清理过，前端对该源的单源「刷新」会忽略条件请求完整重抓一次；
+    /// 旧数据缺该字段时为 0，等于没有水位，行为与之前一致。
+    #[serde(default)]
+    pub peak_article_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

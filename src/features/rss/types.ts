@@ -34,6 +34,12 @@ export interface Feed {
   etag?: string | null;
   /** 上次抓取响应的 Last-Modified（条件请求用；历史数据可能缺失） */
   last_modified?: string | null;
+  /**
+   * 该源本地文章数的历史最高值（清理缓存的水位线）。
+   * 本地篇数低于它，说明文章被清理过——单源「刷新」据此决定忽略条件请求完整重抓一次
+   * （条件请求本身只会回 304，永远取不回被清理的文章）。旧数据缺该字段时为 0，等于没有水位。
+   */
+  peak_article_count?: number;
 }
 
 /** 一篇文章 */

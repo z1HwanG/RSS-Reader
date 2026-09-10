@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.3.3`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.3.4`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building

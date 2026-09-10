@@ -8,6 +8,72 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] - 2026-09-10
+
+### 修复 / Fixed
+
+- 同一篇文章在列表里出现两条（例如左侧列表连着两条一模一样的「21岁出门远行」）：
+  去重此前只按文章 `id` 比对，而 id 是 `hash(feed_id + 条目标识)`，订阅源改过一次
+  条目标识（或中途换过订阅地址）之后，同一篇文章会以**两个不同 id** 落库；v0.3.2 之前
+  写入的记录又没有 `entry_key`，抓取侧的去重（按 entry_key → 链接 → 标题建已知集合）
+  与它比对时两边都对不上，于是磁盘上一直留着两条。
+  现在去重认「身份线索」而不是单个字段：一篇文章登记它的 `entry_key` / 链接 /
+  标题+发布时间，任一线索与他人相同即合并为一条（并查集归组），最后再按 `id` 兜一次
+  （收拾链接被改过、线索全对不上的残留）。合并保留先出现那条的位置与字段、只从同组记录
+  补空缺，已读 / 收藏取并集，不会丢用户数据（`src/lib/articleDedupe.ts`）。
+  同时把刷新（单源 / 全部）与添加订阅源的追加路径统一走 `appendArticles`，
+  避免「载入时清干净、刷新又插一条」的来回反复。
+  A single article could show up twice in the list (e.g. two identical
+  "21岁出门远行" rows). Dedup only compared the article `id`, but that id is
+  `hash(feed_id + entry identity)`, so a feed that ever changed its entry
+  identity (or was re-subscribed under a new URL) left the same article stored
+  under **two different ids** — and records written before v0.3.2 carry no
+  `entry_key`, so the fetch-side dedup (entry_key → link → title) matched
+  neither side and both rows stayed on disk.
+  Dedup now works on identity **clues** instead of a single field: an article
+  registers its `entry_key`, link and title+published-at, and any shared clue
+  merges the records into one (union-find grouping), with a final `id` pass
+  that catches leftovers whose link was rewritten. Merging keeps the earlier
+  record's position and fields, only filling gaps from its group, and unions
+  read / starred so user data survives (`src/lib/articleDedupe.ts`).
+  The append paths (single-feed refresh, refresh all, add feed) now all go
+  through `appendArticles`, so a refresh can no longer re-insert what the
+  load-time cleanup just removed.
+- **清理缓存后刷新取不回文章**：本地文章被清掉，订阅源的 ETag / Last-Modified 却还留着，
+  下次刷新带 `If-None-Match` / `If-Modified-Since` 拿到 304「无更新」，直接跳过下载——
+  列表就一直是空的，看起来就是「删了再也回不来」。现在按**取回只走单源「刷新」**的约定处理：
+  ① 每个订阅源新增水位线 `peak_article_count`（本地篇数的历史最高值，抓取后自动抬高）。
+  **单源「刷新」**（抽屉里右键订阅源 → 刷新）发现本地篇数低于水位线——即这个源被清理过——
+  就忽略条件请求头完整重抓一次，把被清掉的文章补回来；服务端固执回 304 时按「无更新」处理，
+  绝不清空已有数据。
+  ② 标题栏「刷新所有订阅源」**保持增量更新**：304 就跳过，不为取回被清理的文章做全量重抓
+  （多源全量下载明显更慢，也会把刚清理掉的旧文章整批拉回列表）。
+  ③ 清理缓存**不动** ETag / Last-Modified（否则标题栏刷新会变成全量下载、把清掉的旧文章拉回来），
+  只把受影响源的水位线抬到清理前的篇数，留下「被清理过」的痕迹。
+  判定与水位线维护抽成纯函数 `src/lib/feedConditional.ts`，抓取入口 `fetchOneFeed`（`src/App.tsx`）；
+  `Feed` 新增 `peak_article_count`（Rust 侧 `#[serde(default)]`，旧数据缺该字段时为 0，行为不变）。
+  **Clearing the cache made refresh unable to bring articles back**: the local
+  articles were deleted while the feed's ETag / Last-Modified stayed behind, so the
+  next refresh sent `If-None-Match` / `If-Modified-Since`, got a 304 "not modified",
+  and skipped the download entirely — the list stayed empty as if deleted articles
+  could never return. Recovery is now limited to the **single-feed refresh**:
+  ① every feed carries a watermark `peak_article_count` (highest local article count
+  ever seen; raised after each fetch). The single-feed refresh (right-click a feed in
+  the drawer → 刷新) notices that the local count fell below the watermark — meaning
+  this feed was cleaned — and re-downloads in full, ignoring the conditional headers.
+  If the server still insists on 304, it is treated as "no update" and existing data is
+  never wiped.
+  ② the title-bar **"refresh all" stays incremental**: a 304 is skipped and no full
+  re-download is triggered to recover cleaned articles (downloading every feed in full
+  is much slower and keeps pulling cleaned articles back into the list).
+  ③ clearing the cache **does not touch** ETag / Last-Modified (otherwise the title-bar
+  refresh would become a full download and pull cleaned articles back); it only raises
+  the affected feeds' watermarks to their pre-cleanup counts, leaving the trace.
+  The predicate and watermark maintenance live in the pure helper
+  `src/lib/feedConditional.ts`, with `fetchOneFeed` as the fetch entry point
+  (`src/App.tsx`). `Feed` gained `peak_article_count` (Rust side `#[serde(default)]`,
+  so old data reads as 0 and behaves as before).
+
 ## [0.3.3] - 2026-09-10
 
 ### 新增 / Added
@@ -362,7 +428,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), versioning foll
 - 图标字体：Material Symbols Rounded 本地子集化（约 36 KB，不依赖 Google CDN）。
   Icon font: a locally subset Material Symbols Rounded (~36 KB, no Google CDN dependency).
 
-[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.3...HEAD
+[未发布] / Unreleased: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/z1HwanG/RSS-Reader/compare/v0.3.0...v0.3.1
