@@ -8,9 +8,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Article, Feed, MediaItem, ProxyConfig } from "../types";
 import * as rssService from "../services/rssService";
 import { ArticleMedia } from "./ArticleMedia";
+import type { ShareAnchor } from "./ShareMenu";
 import { getFullContent, setFullContent } from "../../../lib/fullContentCache";
+import { resolveAnchorUrl } from "../../../lib/linkGuard";
+import { useMenuPosition } from "../../../lib/useMenuPosition";
 import {
-  detectChallengePage,
   extractArticleFromDocument,
   findVideoEmbeds,
   MIN_USABLE_TEXT,
@@ -21,6 +23,7 @@ import {
   classifyMedia,
   detectContentKind,
   escapeHtml,
+  looksTruncated,
   plainTextLength,
   readingMinutes,
   renderContent,
@@ -33,6 +36,8 @@ interface ArticleViewProps {
   onOpenLink: () => void;
   /** 在浏览器中打开任意地址（附件 / 原文） */
   onOpenExternal?: (url: string) => void;
+  /** 打开分享面板（锚点由分享按钮的位置算出） */
+  onShare?: (anchor: ShareAnchor) => void;
   fontSize: number;
   proxyArg?: ProxyConfig;
 }
@@ -142,7 +147,10 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
     ]) {
       img.removeAttribute(attr);
     }
-    // 排版：懒加载 + 异步解码；只对没有尺寸声明的图片加，避免覆盖站点自己的宽高
+    // 排版：懒加载 + 异步解码；只对没有尺寸声明的图片加，避免覆盖站点自己的宽高。
+    // 「加载前先给一块浅底」由 CSS 按 `img[width][height]` 命中（这类图会按宽高比预留高度），
+    // 不在这里打标记：标记要跟着 DOM 生存，而正文是 dangerouslySetInnerHTML 注入的，
+    // 实测挂载后补的 class 会丢（渲染结果里只剩 class=""），交给 CSS 选择器反而稳。
     if (!img.hasAttribute("loading")) img.setAttribute("loading", "lazy");
     if (!img.hasAttribute("decoding")) img.setAttribute("decoding", "async");
   });
@@ -254,40 +262,42 @@ function stripIframes(html: string): string {
   return doc.body.innerHTML;
 }
 
-/** 正文是否只是内容不可用的占位（无可读文字） */
-function hasReadableText(html: string): boolean {
-  return plainTextLength(html) > 0;
-}
-
 export function ArticleView({
   article,
   feed,
   onToggleStarred,
   onOpenLink,
   onOpenExternal,
+  onShare,
   fontSize,
   proxyArg,
 }: ArticleViewProps): JSX.Element {
-  const [copied, setCopied] = useState(false);
   const [fullContent, setFullContentState] = useState<ExtractedContent | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   /** 是否已经为当前文章尝试过抓取全文（用于区分「抓取中」与「抓不到」） */
   const [hasAttemptedFull, setHasAttemptedFull] = useState(false);
+  /**
+   * 正文链接上的右键菜单。WebView 的原生菜单被全局右键守卫屏蔽了（lib/contextMenuGuard.ts），
+   * 不补这个入口的话，正文里的链接地址根本拿不到 —— 只能点开，没法复制。
+   */
+  const [linkMenu, setLinkMenu] = useState<{ href: string; x: number; y: number } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const { ref: linkMenuRef, position: linkMenuPosition } = useMenuPosition<HTMLDivElement>(linkMenu);
 
   // 切换文章时重置状态（已抓取过全文的命中缓存，直接显示）
   useEffect(() => {
-    setCopied(false);
     setFullContentState(getFullContent(article.id));
-    setFetchError(null);
     setHasAttemptedFull(Boolean(getFullContent(article.id)));
   }, [article.id]);
 
   const contentKind = detectContentKind(article.content ?? "", article.content_type);
   /** 正文内容种类：html / text / markdown / image / external / empty */
   const summaryText = plainTextLength(article.content ?? "");
-  // 摘要过短、且正文不是外链文件时，才提示可以抓取全文
-  const isShort = summaryText < 200 && contentKind !== "external" && contentKind !== "empty";
+  /**
+   * 正文疑似在这里就断了（源只给了摘要）。只用来把工具栏按钮的悬浮提示说清楚 ——
+   * 正文末尾不再挂任何说明，入口常驻在工具栏。
+   */
+  const bodyTruncated = looksTruncated(article.content ?? "");
 
   // 正文渲染（按内容种类分发 + 懒加载回填 + 图片走本地代理协议 + 视频嵌入单独成块）
   const { html: renderedHtml, embeds } = useMemo(
@@ -401,6 +411,12 @@ export function ArticleView({
   useEffect(() => {
     const container = contentRef.current;
     if (!container) return;
+
+    /**
+     * 图片经 rssimg 协议加载失败时回退直连原始 https 地址（img 的 error 不冒泡，故捕获监听）。
+     * 「加载前先给一块浅底」不在这里管：它由 CSS 按 `img[width][height]` 命中，
+     * 不依赖任何挂载后补的标记 —— 正文是 dangerouslySetInnerHTML 注入的，那类标记实测会丢。
+     */
     const onError = (event: Event): void => {
       const img = event.target as HTMLImageElement | null;
       if (!img || img.tagName !== "IMG") return;
@@ -413,22 +429,23 @@ export function ArticleView({
           return;
         }
       }
-      // 第二层：两条链路都失败 → 隐藏，避免留下破图图标
+      // 第二层：两条链路都失败 → 隐藏，避免留下破图图标（连带把预留高度一起收掉）
       img.style.display = "none";
     };
+
     container.addEventListener("error", onError, true);
     return () => container.removeEventListener("error", onError, true);
   }, [renderedHtml]);
 
   const handleFetchFull = async (): Promise<void> => {
     if (!article.link) return;
+    // 切换文章时的缓存回填（正文已经显示着就跳过）；当前文章已有全文时再点 = 重新抓取
     const cached = getFullContent(article.id);
-    if (cached) {
+    if (cached && !fullContent) {
       setFullContentState(cached);
       return;
     }
     setLoadingFull(true);
-    setFetchError(null);
     setHasAttemptedFull(true);
     try {
       const html = await rssService.fetchArticleHtml(article.link, proxyArg);
@@ -441,45 +458,74 @@ export function ArticleView({
       ) {
         setFullContent(article.id, extracted);
         setFullContentState(extracted);
+        // 成功与失败都不发通知：唯一的反馈是按钮状态（获取中… → 已获取全文）与正文本身
         return;
       }
-      // 失败原因分开说：站点拦截 / 正文靠脚本渲染 / 确实没抓到更多
-      const challenge = detectChallengePage(html);
-      const pageText = plainTextLength(
-        html.replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, " "),
-      );
-      if (challenge) {
-        setFetchError(`${challenge}，抓不到正文。可点上方「打开原文」在浏览器里阅读。`);
-      } else if (pageText < MIN_USABLE_TEXT) {
-        setFetchError(
-          "原文页几乎没有正文文本（正文多半由 JavaScript 渲染），HTML 里抓不到内容。可点上方「打开原文」。",
-        );
-      } else {
-        setFetchError(
-          `提取到的正文（${extracted.textLength} 字）没有比订阅源已给的内容（${summaryText} 字）更多，` +
-            `命中的容器是「${extracted.source}」。可点上方「打开原文」查看完整页面。`,
-        );
-      }
-    } catch (err) {
-      setFetchError(String(err));
+      // 抓不到（站点拦截 / 正文靠 JS 渲染 / 确实没有更多）就静默结束，成功也不发通知：
+      // 这个入口唯一的反馈是按钮状态与正文本身，不弹提示、不进消息中心
+    } catch {
+      // 网络或解析出错同样静默
     } finally {
       setLoadingFull(false);
     }
   };
 
-  const handleCopyLink = async (): Promise<void> => {
-    if (!article.link) return;
+  /**
+   * 正文链接的右键菜单：给出「复制链接地址」。
+   *
+   * 两个要点：
+   * 1. WebView 的原生菜单被全局右键守卫屏蔽了（lib/contextMenuGuard.ts），不补这个入口
+   *    就只能点开、拿不到地址；
+   * 2. 用原生监听器而不是 React 的 onContextMenu —— 正文是 dangerouslySetInnerHTML 注入的，
+   *    实测浏览器真实右键（button=2 / trusted）走不到 React 的合成事件上，只有脚本派发才会
+   *    触发。linkGuard 处理点击用的是同一套路。
+   */
+  useEffect(() => {
+    const onContextMenu = (event: MouseEvent): void => {
+      const anchor = (event.target as Element | null)?.closest?.("a[href]") as
+        | HTMLAnchorElement
+        | null;
+      if (!anchor || !anchor.closest(".article-view-content")) return;
+      const url = resolveAnchorUrl(anchor);
+      if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) return;
+      event.preventDefault();
+      setLinkCopied(false);
+      setLinkMenu({ href: url.toString(), x: event.clientX, y: event.clientY });
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  const copyLinkAddress = async (): Promise<void> => {
+    if (!linkMenu) return;
     try {
-      await navigator.clipboard.writeText(article.link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(linkMenu.href);
+      setLinkCopied(true);
+      // 短暂显示「已复制」再收起，让用户确认复制成功
+      window.setTimeout(() => {
+        setLinkMenu(null);
+        setLinkCopied(false);
+      }, 700);
     } catch {
-      // 忽略剪贴板权限错误
+      setLinkMenu(null);
     }
   };
 
-  // 可用的按钮：获取全文（正文为空或外部文件时也算可用）
-  const canFetchFull = Boolean(article.link) && !fullContent;
+  // 点击别处或再次右键时收起链接菜单
+  useEffect(() => {
+    if (!linkMenu) return;
+    const close = (): void => setLinkMenu(null);
+    document.addEventListener("click", close);
+    document.addEventListener("contextmenu", close);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("contextmenu", close);
+    };
+  }, [linkMenu]);
+
+  // 入口常驻：只要文章有原文链接就一直在。抓到全文后按钮不消失，只是换成「已获取全文」，
+  // 否则用户刚点完就看到入口没了，会以为功能出问题、也没法重抓一次。
+  const canFetchFull = Boolean(article.link);
 
   /**
    * 订阅源完全没给正文（content 为空）：自动抓一次原文。
@@ -541,14 +587,39 @@ export function ArticleView({
               <span className="material-symbols-rounded">open_in_new</span>
               打开原文
             </button>
-            <button onClick={() => void handleCopyLink()} title="复制链接">
-              <span className="material-symbols-rounded">
-                {copied ? "check" : "content_copy"}
-              </span>
-              {copied ? "已复制" : "复制链接"}
-            </button>
+            {/* 常驻入口：不必等系统判断「正文偏短」才给，任何文章都能手动抓一次原文 */}
+            {canFetchFull && (
+              <button
+                onClick={() => void handleFetchFull()}
+                disabled={loadingFull}
+                title={
+                  fullContent
+                    ? "已经拿到原文全文，再点一次可重新抓取"
+                    : bodyTruncated
+                      ? "订阅源只给了摘要（正文以省略号收尾），抓原文页可读全文"
+                      : "抓取原文页，还原完整正文"
+                }
+              >
+                <span className="material-symbols-rounded">
+                  {loadingFull ? "progress_activity" : fullContent ? "check" : "article"}
+                </span>
+                {loadingFull ? "获取中…" : fullContent ? "已获取全文" : "获取全文"}
+              </button>
+            )}
           </>
         )}
+        {/* 分享：没有原文链接的文章也能分享摘要 / 存成文件，所以不放进 link 判断里 */}
+        <button
+          onClick={(e) => {
+            if (!onShare) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            onShare({ left: rect.right, top: rect.bottom + 6, align: "right" });
+          }}
+          title="分享这篇文章"
+        >
+          <span className="material-symbols-rounded">share</span>
+          分享
+        </button>
       </div>
 
       {/* 标签 */}
@@ -607,26 +678,6 @@ export function ArticleView({
         onOpen={openUrl}
       />
 
-      {/* 摘要式正文时显示获取全文按钮 */}
-      {canFetchFull && (isShort || !hasReadableText(renderedHtml) || contentKind === "external") && (
-        <div className="article-fetch-full">
-          {fetchError && <div className="article-fetch-error">{fetchError}</div>}
-          <button
-            className="f2-btn-soft"
-            onClick={() => void handleFetchFull()}
-            disabled={loadingFull}
-          >
-            <span className="material-symbols-rounded">
-              {loadingFull ? "progress_activity" : "article"}
-            </span>
-            {loadingFull ? "正在获取全文…" : "获取全文"}
-          </button>
-          {contentKind === "external" && (
-            <div className="article-fetch-note">订阅源只给了外部文件链接，抓取原文页可还原正文</div>
-          )}
-        </div>
-      )}
-
       {/* 正文另存有摘要时提示：正文可能只是摘要 */}
       {article.summary &&
         summaryText > 0 &&
@@ -647,6 +698,31 @@ export function ArticleView({
             />
           </details>
         )}
+
+      {/* 正文链接的右键菜单：原生菜单被全局守卫屏蔽，这里给回「复制链接地址」 */}
+      {linkMenu && (
+        <div
+          ref={linkMenuRef}
+          className="feed-ctx-menu link-ctx-menu"
+          style={{ left: linkMenuPosition.left, top: linkMenuPosition.top }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="dropdown-item" onClick={() => void copyLinkAddress()}>
+            <span className="material-symbols-rounded">{linkCopied ? "check" : "insert_link"}</span>
+            {linkCopied ? "已复制" : "复制链接地址"}
+          </button>
+          <button
+            className="dropdown-item"
+            onClick={() => {
+              onOpenExternal?.(linkMenu.href);
+              setLinkMenu(null);
+            }}
+          >
+            <span className="material-symbols-rounded">open_in_new</span>
+            在浏览器中打开
+          </button>
+        </div>
+      )}
     </article>
   );
 }

@@ -33,6 +33,16 @@ export interface Preferences {
   viewFilter: ViewFilter;
   viewSort: ViewSort;
   viewMode: ViewMode;
+  /**
+   * 左侧栏（订阅源抽屉）里被折叠的分组键：分组 id，未分组用 FeedList 的哨兵值 `@ungrouped`。
+   * 折叠状态跟着偏好一起持久化 —— 否则每次开应用都得重新收起一遍。
+   */
+  sidebarCollapsedGroups: string[];
+  /**
+   * 设置 →「分组与排序」里被折叠的分组（分组 id；未分组用 `__ungrouped__`）。
+   * 与左侧栏**各自独立**：一个是浏览时收起不想看的组，一个是整理时收起已排好的组。
+   */
+  organizeCollapsedGroups: string[];
 }
 
 const STORAGE_KEY = "rss-reader-preferences";
@@ -48,6 +58,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   viewFilter: "all",
   viewSort: "newest",
   viewMode: "compact",
+  sidebarCollapsedGroups: [],
+  organizeCollapsedGroups: [],
 };
 
 /** 各档自动抓取频率对应的毫秒数；never 为 null（不自动抓取） */
@@ -60,6 +72,11 @@ export const REFRESH_INTERVALS_MS: Record<RefreshFrequency, number | null> = {
   "45m": 45 * 60 * 1000,
   "1h": 60 * 60 * 1000,
 };
+
+/** 读一个字符串数组字段：非数组、混入非字符串都滤掉（这些键只在运行时用来比对） */
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
 
 /** 读取本地偏好，缺失字段用默认值 */
 export function loadPreferences(): Preferences {
@@ -83,6 +100,9 @@ export function loadPreferences(): Preferences {
         parsed.viewMode && VIEW_MODES.includes(parsed.viewMode)
           ? parsed.viewMode
           : DEFAULT_PREFERENCES.viewMode,
+      // 旧数据没有这两个字段；非数组 / 混入非字符串都退回默认（键只在运行时用来比对）
+      sidebarCollapsedGroups: stringList(parsed.sidebarCollapsedGroups),
+      organizeCollapsedGroups: stringList(parsed.organizeCollapsedGroups),
     };
   } catch {
     return { ...DEFAULT_PREFERENCES };

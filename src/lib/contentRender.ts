@@ -182,17 +182,48 @@ export function escapeHtml(raw: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** 裸 URL（正文里直接写出来的地址） */
+const BARE_URL = /(https?:\/\/[^\s<>"']+)/g;
+/** URL 末尾常跟着标点，这些不属于地址本身（中英文句读都要剥掉） */
+const TRAILING_PUNCT = /[.,;:!?，。；：！？、）)】」』…]+$/;
+
+/** 把一段纯文本里的裸 URL 变成链接（输入必须已经过 escapeHtml） */
+function linkifyText(text: string): string {
+  return text.replace(BARE_URL, (whole) => {
+    const trailing = whole.match(TRAILING_PUNCT)?.[0] ?? "";
+    const url = trailing ? whole.slice(0, -trailing.length) : whole;
+    if (!url) return whole;
+    return `<a href="${url}">${url}</a>${trailing}`;
+  });
+}
+
+/**
+ * 把 HTML 片段里的裸 URL 变成可点链接。
+ *
+ * 两处要绕开：
+ * 1. 标签内部（`<a href="…">` 的属性不能二次处理）；
+ * 2. 已经是链接的整段 `<a>…</a>` —— 否则「链接文字本身就是网址」会生成嵌套 `<a>`。
+ * 订阅源的纯文本 / Markdown 正文里经常直接写地址（例如「详见 https://…」），
+ * 不转的话用户看到的只是一串点不动的文字。
+ */
+export function linkifyHtml(html: string): string {
+  return html
+    .split(/(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]*>)/gi)
+    .map((part) => (part.startsWith("<") ? part : linkifyText(part)))
+    .join("");
+}
+
 /**
  * 纯文本转 HTML：
- * 空行分段，段内保留换行（<br>）。订阅源的纯文本摘要常靠空行分段，
- * 直接塞进 innerHTML 会丢掉全部换行。
+ * 空行分段，段内保留换行（<br>），其中的裸 URL 转成可点链接。
+ * 订阅源的纯文本摘要常靠空行分段，直接塞进 innerHTML 会丢掉全部换行。
  */
 export function textToHtml(raw: string): string {
   return raw
     .replace(/\r\n?/g, "\n")
     .trim()
     .split(/\n{2,}/)
-    .map((block) => `<p>${escapeHtml(block.trim()).replace(/\n/g, "<br>")}</p>`)
+    .map((block) => `<p>${linkifyHtml(escapeHtml(block.trim()).replace(/\n/g, "<br>"))}</p>`)
     .join("\n");
 }
 
@@ -204,7 +235,7 @@ function safeUrl(raw: string): string | null {
   return null;
 }
 
-/** 行内 Markdown 语法 → HTML（图片 → 链接 → 代码 → 加粗 → 斜体 → 删除线） */
+/** 行内 Markdown 语法 → HTML（图片 → 链接 → 代码 → 加粗 → 斜体 → 删除线 → 裸链接） */
 export function inlineMarkdown(raw: string): string {
   let out = escapeHtml(raw);
   out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (whole, alt: string, src: string) => {
@@ -224,7 +255,9 @@ export function inlineMarkdown(raw: string): string {
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   out = out.replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
   out = out.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-  return out;
+  // 最后一步：正文里直接写出来的地址也变成链接（Markdown 自带的写法已在上一步处理完，
+  // linkifyHtml 会跳过已生成的 <a>，不会产生嵌套）
+  return linkifyHtml(out);
 }
 
 /**
@@ -409,6 +442,42 @@ export function plainTextLength(html: string): number {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim().length;
+}
+
+/** 去掉 HTML 标签取纯文本（与 plainTextLength 同一套替换规则） */
+export function plainTextOf(html: string): string {
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 正文尾部的截断引导语 */
+const TRUNCATION_CUES =
+  /(阅读全文|阅读原文|查看全文|继续阅读|点击阅读|详见原文|全文见|read\s*more|continue\s*reading|full\s+(article|post|story))/i;
+/** 文末声明的特征词：命中说明引导语是站点免责话术，不是正文被截断 */
+const DISCLAIMER_CUES = /(免责|声明|不代表|第三方|校验|观点和立场|版权|转载|授权)/;
+/** 只有正文短到这个程度才采信「引导语」信号 */
+const CUE_TEXT_LIMIT = 600;
+
+/**
+ * 正文是否疑似被截断 —— 也就是订阅源只给了摘要，正文在这里就断了。
+ *
+ * 两类信号，可靠性差别很大：
+ * 1. **以省略号收尾**（OSCHINA、华尔街见闻这类「摘要 + …」的典型形态）：可靠，一律采信；
+ * 2. **尾部出现「阅读全文 / Read more」引导**：只在正文较短、且尾部没有免责声明特征词时采信。
+ *    实测长文尾部的同类字样多是别的东西 —— 小众软件是文末声明「请点击链接阅读原文…不代表本站
+ *    观点和立场」，ByteByteGo 是目录模板里的 Read more；把它们当截断，会让完整的文章也冒出
+ *    「获取全文」，点下去还只能得到「提取到的正文没有更多」。
+ */
+export function looksTruncated(raw: string): boolean {
+  const text = plainTextOf(raw);
+  if (!text) return false;
+  // 省略号收尾：只看最后几十个字符，避免正文中间的「...」误伤
+  if (/(\.{3}|…|···)\s*$/.test(text.slice(-40))) return true;
+  if (text.length > CUE_TEXT_LIMIT) return false;
+  return TRUNCATION_CUES.test(text.slice(-120)) && !DISCLAIMER_CUES.test(text.slice(-200));
 }
 
 /** 估算阅读时长（分钟，最少 1 分钟）：按每分钟 400 个字符计；输入为纯文本字符数 */

@@ -607,6 +607,12 @@ textarea:focus-visible {
   transform-origin: top left;
 }
 
+/* 正文链接的右键菜单：沿用列表右键菜单的样式，只在宽度上收一点 */
+.link-ctx-menu {
+  min-width: 176px;
+  z-index: 520;
+}
+
 /* 菜单项：32px 高、4px 圆角、选中项左侧强调条 */
 .dropdown-item {
   position: relative;
@@ -681,6 +687,104 @@ textarea:focus-visible {
   height: 1px;
   margin: 4px 0;
   background: var(--f2-stroke);
+}
+
+/* ===== 分享面板（ShareMenu）：两行式菜单项 = 动作标题 + 一句说明 ===== */
+.share-menu {
+  position: fixed;
+  z-index: 600;
+  width: 292px;
+  max-height: min(560px, calc(100vh - 80px));
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--f2-bg-flyout);
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  box-shadow: var(--f2-shadow-flyout);
+  animation: f2-flyout-in var(--f2-dur-2) var(--f2-ease);
+  transform-origin: top right;
+}
+
+/* 面板头：说明这次分享的是哪一篇 */
+.share-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 6px;
+}
+
+.share-menu-head .material-symbols-rounded {
+  font-size: 16px;
+  color: var(--f2-accent-fg);
+  flex-shrink: 0;
+}
+
+.share-menu-head-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--f2-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  color: var(--f2-text-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+.share-item:hover:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.share-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.share-item-icon {
+  font-size: 18px;
+  color: var(--f2-text-2);
+  flex-shrink: 0;
+}
+
+.share-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-item-title {
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.share-item-desc {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--f2-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 复制完成后的即时反馈（面板不关闭，方便接着复制别的格式） */
+.share-item-done {
+  font-size: 16px;
+  color: var(--f2-success-fg);
+  flex-shrink: 0;
 }
 
 /* 统计区 */
@@ -1391,6 +1495,17 @@ textarea:focus-visible {
   border-radius: var(--f2-radius-sm);
 }
 
+/* 图片没到位之前先给一块浅底。
+   站点常在 <img> 上写 width/height，浏览器会按宽高比预留高度 —— 实测一张 640×480 的图
+   在 624px 宽的正文里预留 468px，图片加载出来（或彻底失败被隐藏）之前，那块空间就是一片
+   凭空的白，一篇文章多张图时会读成「正文断了」。
+   只挑带尺寸声明的图：正文里的小图标一般不写 width/height，不会被误加底色；
+   用的是 inset box-shadow 而不是 border，避免撑大元素、把预留比例算歪。 */
+.article-view-content img[width][height] {
+  background: var(--f2-fill-control-hover);
+  box-shadow: inset 0 0 0 1px var(--f2-stroke);
+}
+
 /* 图片与图注：站点常见的 <figure><img><figcaption> 结构 */
 .article-view-content figure {
   margin: 18px 0;
@@ -1846,35 +1961,6 @@ textarea:focus-visible {
   border-left: 2px solid var(--f2-stroke);
 }
 
-/* 获取全文区域 */
-.article-fetch-full {
-  margin-top: 24px;
-  padding: 20px;
-  text-align: center;
-  border-top: 1px solid var(--f2-stroke);
-}
-
-.article-fetch-full button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.article-fetch-full .material-symbols-rounded {
-  font-size: 16px;
-}
-
-.article-fetch-note {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--f2-text-2);
-}
-
-.article-fetch-error {
-  font-size: 13px;
-  color: var(--f2-critical-fg);
-  margin-bottom: 8px;
-}
 
 /* ================================================================
  * 11. 对话框（ContentDialog）
@@ -3176,6 +3262,32 @@ textarea:focus-visible {
   outline: 1px solid var(--f2-accent-fg);
   outline-offset: 2px;
   border-radius: var(--f2-radius-sm);
+}
+
+/* 分组手柄：与订阅源行手柄同一形态，只是长在分组标题行里（不套 .organize-row 的那条规则） */
+.group-drag-handle {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--f2-text-3);
+  cursor: grab;
+  user-select: none;
+  /* 手柄按下后靠指针事件自绘拖拽，禁掉浏览器自身的平移/选择手势 */
+  touch-action: none;
+  margin-right: 2px;
+}
+
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* 被拖动的分组 */
+.feed-group.dragging {
+  opacity: 0.45;
+}
+
+/* 落点指示：分组插入到这个分组之前 */
+.feed-group-header.drop-before {
+  box-shadow: inset 0 2px 0 var(--f2-accent-fg);
 }
 
 /* ================================================================

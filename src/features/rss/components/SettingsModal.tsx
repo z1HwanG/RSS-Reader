@@ -60,7 +60,14 @@ interface SettingsModalProps {
    */
   onMoveFeed: (feedId: string, position: FeedMovePosition, beforeId?: string | null) => void;
   onMoveToGroup: (feedId: string, groupId: string | null) => void;
-  onMoveGroup: (groupId: string, direction: "up" | "down") => void;
+  /**
+   * 拖动排序分组：把 `groupId` 移到 `beforeGroupId` 之前（null = 移到末尾）。
+   * 分组先后由 state.groups 的数组顺序决定，没有 sort_order。
+   */
+  onReorderGroup: (groupId: string, beforeGroupId: string | null) => void;
+  /** 「分组与排序」里被折叠的分组（分组 id；未分组用 `__ungrouped__`），持久化在偏好里 */
+  collapsedGroups: string[];
+  onToggleGroupCollapsed: (key: string) => void;
   onAddGroup: (name: string) => void;
   onRenameGroup: (id: string, name: string) => void;
   onRemoveGroup: (id: string) => void;
@@ -225,7 +232,9 @@ export function SettingsModal({
   onUpdateFeed,
   onMoveFeed,
   onMoveToGroup,
-  onMoveGroup,
+  onReorderGroup,
+  collapsedGroups,
+  onToggleGroupCollapsed,
   onAddGroup,
   onRenameGroup,
   onRemoveGroup,
@@ -576,6 +585,8 @@ export function SettingsModal({
   const DRAG_THRESHOLD_PX = 4;
   const organizeListRef = useRef<HTMLDivElement | null>(null);
   const draggingIdRef = useRef<string | null>(null);
+  /** 正在拖动的分组 id（拖分组时用它，与 draggingIdRef 互斥） */
+  const draggingGroupIdRef = useRef<string | null>(null);
   const pointerModeRef = useRef(false);
   const pointerDragRef = useRef<{ startY: number; active: boolean; row: HTMLElement } | null>(null);
   /** 自动滚动的 rAF 句柄（拖到列表上下边缘时用） */
@@ -649,6 +660,35 @@ export function SettingsModal({
   };
 
   /**
+   * 拖动**分组**时的落点：命中某个分组的标题行 → 插到该分组之前；
+   * 落到「未分组」区块 → 返回 `beforeGroupId: null`（排到所有分组之后）。
+   * 指针不在任何标题行上时返回 null，不提交（避免误判成置底）。
+   */
+  const findGroupDropSlot = (clientY: number): { beforeGroupId: string | null } | null => {
+    const container = organizeListRef.current;
+    if (!container) return null;
+    for (const block of container.querySelectorAll<HTMLElement>(".feed-group")) {
+      const header = block.querySelector<HTMLElement>(".feed-group-header");
+      if (!header) continue;
+      const rect = header.getBoundingClientRect();
+      if (clientY < rect.top || clientY > rect.bottom) continue;
+      const key = block.dataset.groupKey ?? null;
+      return { beforeGroupId: key === "__ungrouped__" ? null : key };
+    }
+    return null;
+  };
+
+  /** 提交一次分组拖动 */
+  const commitGroupDrop = (
+    groupId: string,
+    slot: { beforeGroupId: string | null } | null,
+  ): void => {
+    if (!slot) return;
+    if (slot.beforeGroupId === groupId) return; // 落到自己身上 = 不动
+    onReorderGroup(groupId, slot.beforeGroupId);
+  };
+
+  /**
    * 拖拽手柄与落点逻辑都放在这里，注册却只发生一次（依赖只含 tab）。
    *
    * 原来把 `feeds` 放进依赖里，导致每次重排都重建监听：
@@ -687,6 +727,19 @@ export function SettingsModal({
       }
     };
 
+    /** 分组拖动时的落点指示：给目标分组的标题行加同一条插入线 */
+    const showGroupIndicator = (slot: { beforeGroupId: string | null } | null): void => {
+      container.querySelectorAll(".feed-group-header.drop-before").forEach((el) => {
+        el.classList.remove("drop-before");
+      });
+      if (!slot) return;
+      if (slot.beforeGroupId === draggingGroupIdRef.current) return;
+      const key = slot.beforeGroupId ?? "__ungrouped__";
+      container
+        .querySelector<HTMLElement>(`.feed-group[data-group-key="${CSS.escape(key)}"] .feed-group-header`)
+        ?.classList.add("drop-before");
+    };
+
     const stopAutoScroll = (): void => {
       if (autoScrollRafRef.current !== null) {
         cancelAnimationFrame(autoScrollRafRef.current);
@@ -718,10 +771,25 @@ export function SettingsModal({
     /** 收起所有拖拽视觉状态（两条通道共用） */
     const resetDragState = (): void => {
       draggingIdRef.current = null;
+      draggingGroupIdRef.current = null;
       pointerDragRef.current = null;
       pointerModeRef.current = false;
       stopAutoScroll();
       clearIndicator();
+    };
+
+    /** 当前拖的是什么（两类互斥） */
+    const dragKind = (): "group" | "feed" | null =>
+      draggingGroupIdRef.current ? "group" : draggingIdRef.current ? "feed" : null;
+
+    /**
+     * 手柄所在的分组区块。「未分组」区块不是一个分组，不能拖（返回 null）。
+     */
+    const groupBlockOf = (target: HTMLElement | null): { id: string; el: HTMLElement } | null => {
+      const block = target?.closest<HTMLElement>(".feed-group") ?? null;
+      const key = block?.dataset.groupKey ?? null;
+      if (!block || !key || key === "__ungrouped__") return null;
+      return { id: key, el: block };
     };
 
     // ===== 通道一：HTML5 原生拖拽 =====
@@ -730,7 +798,19 @@ export function SettingsModal({
       // 手柄按下的这次拖拽被浏览器接走了：原生拖放可用 → 从此走 HTML5 通道
       pointerModeRef.current = false;
       pointerDragRef.current = null;
-      const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(".organize-row");
+      const target = event.target as HTMLElement | null;
+      const group = target?.closest(".group-drag-handle") ? groupBlockOf(target) : null;
+      if (group) {
+        draggingGroupIdRef.current = group.id;
+        group.el.classList.add("dragging");
+        container.classList.add("organize-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", group.id);
+        }
+        return;
+      }
+      const row = target?.closest<HTMLElement>(".organize-row");
       const id = row?.dataset.feedId ?? null;
       draggingIdRef.current = id;
       if (row) row.classList.add("dragging");
@@ -742,22 +822,26 @@ export function SettingsModal({
     };
 
     const onDragOver = (event: DragEvent): void => {
-      if (pointerModeRef.current || !draggingIdRef.current) return;
+      if (pointerModeRef.current || !dragKind()) return;
       // 关键：同步 accept，浏览器就不会显示「禁止」光标
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
       startAutoScroll(event.clientY);
-      showIndicator(findDropSlot(event.clientY));
+      if (draggingGroupIdRef.current) showGroupIndicator(findGroupDropSlot(event.clientY));
+      else showIndicator(findDropSlot(event.clientY));
     };
 
     const onDrop = (event: DragEvent): void => {
       if (pointerModeRef.current) return;
-      const dragId = draggingIdRef.current;
-      if (!dragId) return;
+      const kind = dragKind();
+      if (!kind) return;
       event.preventDefault();
-      const slot = findDropSlot(event.clientY);
+      const groupId = draggingGroupIdRef.current;
+      const feedId = draggingIdRef.current;
+      const y = event.clientY;
       resetDragState();
-      commitDrop(dragId, slot);
+      if (kind === "group" && groupId) commitGroupDrop(groupId, findGroupDropSlot(y));
+      else if (feedId) commitDrop(feedId, findDropSlot(y));
     };
 
     const onDragEnd = (): void => resetDragState();
@@ -766,6 +850,21 @@ export function SettingsModal({
     const onPointerDown = (event: PointerEvent): void => {
       if (event.button !== 0) return;
       const target = event.target as HTMLElement | null;
+      // 分组手柄优先：分组的可拖区域只有标题行上的手柄
+      if (target?.closest(".group-drag-handle")) {
+        const group = groupBlockOf(target);
+        if (!group) return;
+        draggingGroupIdRef.current = group.id;
+        pointerModeRef.current = true;
+        pointerDragRef.current = { startY: event.clientY, active: false, row: group.el };
+        group.el.draggable = true;
+        try {
+          group.el.setPointerCapture(event.pointerId);
+        } catch {
+          /* 拿不到捕获也能拖，只是移出窗口外会断线 */
+        }
+        return;
+      }
       // 只有手柄按下才算「拖」——整行都能拖会和行内按钮抢事件，也让误拖变多
       if (!target?.closest(".feeds-manage-row-handle")) return;
       const row = target.closest<HTMLElement>(".organize-row");
@@ -786,7 +885,7 @@ export function SettingsModal({
     };
 
     const onPointerMove = (event: PointerEvent): void => {
-      if (!pointerModeRef.current || !draggingIdRef.current) return;
+      if (!pointerModeRef.current || !dragKind()) return;
       const drag = pointerDragRef.current;
       if (!drag) return;
       if (!drag.active) {
@@ -797,19 +896,27 @@ export function SettingsModal({
       }
       event.preventDefault();
       startAutoScroll(event.clientY);
-      showIndicator(findDropSlot(event.clientY));
+      if (draggingGroupIdRef.current) showGroupIndicator(findGroupDropSlot(event.clientY));
+      else showIndicator(findDropSlot(event.clientY));
     };
 
     const finishPointerDrag = (event: PointerEvent, commit: boolean): void => {
       if (!pointerModeRef.current) return;
-      const dragId = draggingIdRef.current;
+      const kind = dragKind();
+      const groupId = draggingGroupIdRef.current;
+      const feedId = draggingIdRef.current;
       const drag = pointerDragRef.current;
-      const slot = commit && drag?.active ? findDropSlot(event.clientY) : null;
+      const y = event.clientY;
+      const active = Boolean(commit && drag?.active);
       const row = drag?.row;
+      const groupSlot = active && kind === "group" ? findGroupDropSlot(y) : null;
+      const feedSlot = active && kind === "feed" ? findDropSlot(y) : null;
       resetDragState();
       if (row?.hasPointerCapture(event.pointerId)) row.releasePointerCapture(event.pointerId);
       if (row) row.draggable = false;
-      if (commit && drag?.active && dragId) commitDrop(dragId, slot);
+      if (!active) return;
+      if (kind === "group" && groupId) commitGroupDrop(groupId, groupSlot);
+      else if (kind === "feed" && feedId) commitDrop(feedId, feedSlot);
     };
 
     const onPointerUp = (event: PointerEvent): void => finishPointerDrag(event, true);
@@ -846,7 +953,7 @@ export function SettingsModal({
   }, [tab]);
 
   /** 渲染单个订阅源行（分组与排序 tab） */
-  function renderFeedRow(feed: Feed, index: number, total: number): JSX.Element {
+  function renderFeedRow(feed: Feed): JSX.Element {
     return (
       <li
         key={feed.id}
@@ -862,23 +969,9 @@ export function SettingsModal({
         <span className="feeds-manage-name" title={feed.url}>
           {feed.title || feed.url}
         </span>
+        {/* 置顶 / 置底按钮已移除：拖动本来就能落到任意位置（含跨分组），
+            档位式移动只是拖拽的退化形式，留在行里只会让控件变挤 */}
         <div className="feeds-manage-controls">
-          <button
-            className="f2-mini-btn"
-            onClick={() => onMoveFeed(feed.id, "top")}
-            disabled={index === 0}
-            title="置顶（组内）"
-          >
-            <span className="material-symbols-rounded">vertical_align_top</span>
-          </button>
-          <button
-            className="f2-mini-btn"
-            onClick={() => onMoveFeed(feed.id, "bottom")}
-            disabled={index === total - 1}
-            title="置底（组内）"
-          >
-            <span className="material-symbols-rounded">vertical_align_bottom</span>
-          </button>
           <select
             className="feeds-manage-group-select"
             value={feed.group_id ?? ""}
@@ -903,18 +996,21 @@ export function SettingsModal({
   }
 
   /** 渲染分组区块（分组与排序 tab） */
-  function renderGroupBlock(
-    label: string,
-    groupId: string | null,
-    groupIndex: number,
-    groupTotal: number,
-    group?: Group,
-  ): JSX.Element {
+  function renderGroupBlock(label: string, groupId: string | null, group?: Group): JSX.Element {
     const groupFeeds = getFeedsByGroup(groupId);
     const groupKey = groupId ?? "__ungrouped__";
+    const collapsed = collapsedGroups.includes(groupKey);
     return (
       <div key={group?.id ?? "__ungrouped__"} data-group-key={groupKey} className="feed-group">
         <div className="feed-group-header">
+          {group && (
+            <span
+              className="group-drag-handle feeds-manage-row-handle material-symbols-rounded"
+              title="按住并上下拖动，调整分组顺序"
+            >
+              drag_indicator
+            </span>
+          )}
           {group && editingGroupId === group.id ? (
             <input
               className="group-name-input"
@@ -937,24 +1033,18 @@ export function SettingsModal({
               <span className="feed-count-badge">{groupFeeds.length}</span>
             </span>
           )}
-          {group && (
-            <div className="group-controls">
-              <button
-                className="f2-mini-btn"
-                onClick={() => onMoveGroup(group.id, "up")}
-                disabled={groupIndex === 0}
-                title="上移分组"
-              >
-                <span className="material-symbols-rounded">keyboard_arrow_up</span>
-              </button>
-              <button
-                className="f2-mini-btn"
-                onClick={() => onMoveGroup(group.id, "down")}
-                disabled={groupIndex === groupTotal - 1}
-                title="下移分组"
-              >
-                <span className="material-symbols-rounded">keyboard_arrow_down</span>
-              </button>
+          <div className="group-controls">
+            <button
+              className="f2-mini-btn group-collapse-btn"
+              onClick={() => onToggleGroupCollapsed(groupKey)}
+              title={collapsed ? "展开分组" : "折叠分组"}
+              aria-expanded={!collapsed}
+            >
+              <span className="material-symbols-rounded">
+                {collapsed ? "expand_more" : "expand_less"}
+              </span>
+            </button>
+            {group && (
               <button
                 className="group-remove-btn"
                 onClick={() => onRemoveGroup(group.id)}
@@ -962,18 +1052,21 @@ export function SettingsModal({
               >
                 <span className="material-symbols-rounded">close</span>
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-        <div className="feed-group-body">
-          {groupFeeds.length === 0 ? (
-            <div className="feeds-group-empty">无订阅源</div>
-          ) : (
-            <ul className="feeds-manage-list">
-              {groupFeeds.map((feed, i) => renderFeedRow(feed, i, groupFeeds.length))}
-            </ul>
-          )}
-        </div>
+        {/* 上移 / 下移分组按钮已移除：分组标题行的手柄可以直接拖到任意位置 */}
+        {!collapsed && (
+          <div className="feed-group-body">
+            {groupFeeds.length === 0 ? (
+              <div className="feeds-group-empty">无订阅源</div>
+            ) : (
+              <ul className="feeds-manage-list">
+                {groupFeeds.map((feed) => renderFeedRow(feed))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -1291,11 +1384,12 @@ export function SettingsModal({
                   容器本身不参与 keyed 重建：行/分组的顺序由各自的 key 驱动，重建容器会把
                   拖拽过程中的 DOM 状态（拖拽中、落点提示）一起清掉。 */}
               <div ref={organizeListRef}>
-                {renderGroupBlock("未分组", null, -1, groups.length)}
+                {groups.map((g) => renderGroupBlock(g.name, g.id, g))}
 
-                {groups.map((g, gi) =>
-                  renderGroupBlock(g.name, g.id, gi, groups.length, g),
-                )}
+                {/* 未分组放在最后：与「未分组排在所有分组之后」的排序语义一致
+                    （src/lib/feedOrder.ts 的 groupRank），也让「把分组拖到未分组区块上 = 排到最后」
+                    这个落点规则不会自相矛盾 —— 它就在最下面。 */}
+                {renderGroupBlock("未分组", null)}
               </div>
             </div>
           )}

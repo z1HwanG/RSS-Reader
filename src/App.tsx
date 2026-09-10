@@ -9,6 +9,7 @@ import { AddFeedModal } from "./features/rss/components/AddFeedModal";
 import { ArticleList } from "./features/rss/components/ArticleList";
 import { ArticleView } from "./features/rss/components/ArticleView";
 import { SettingsModal } from "./features/rss/components/SettingsModal";
+import { ShareMenu, type ShareAnchor } from "./features/rss/components/ShareMenu";
 import { TitleBar, type AppMessage } from "./features/rss/components/TitleBar";
 import { FeedList } from "./features/rss/components/FeedList";
 import * as rssService from "./features/rss/services/rssService";
@@ -18,7 +19,7 @@ import { appendArticles, dedupeArticlesById } from "./lib/articleDedupe";
 import { clearFullContentCache } from "./lib/fullContentCache";
 import { clearPreviewCache } from "./features/rss/components/ArticleList";
 import { filterArticles } from "./lib/articleFilter";
-import { reorderFeedsInGroup, type FeedMovePosition } from "./lib/feedOrder";
+import { reorderFeedsInGroup, reorderGroups, type FeedMovePosition } from "./lib/feedOrder";
 import { useResetScrollOnChange } from "./lib/scrollReset";
 import { call } from "./lib/tauri";
 import {
@@ -116,6 +117,11 @@ function App(): JSX.Element {
   const [pendingFeedUrl, setPendingFeedUrl] = useState<string | null>(null);
   // 状态载入完成前收到的深链地址（载入后重放，见 handleDeepLink）
   const pendingDeepLinkRef = useRef<string | null>(null);
+  // 分享面板：目标文章 + 展开锚点（阅读视图工具栏与文章列表右键菜单都是入口）
+  const [shareTarget, setShareTarget] = useState<{
+    articleId: string;
+    anchor: ShareAnchor;
+  } | null>(null);
   const [messages, setMessages] = useState<AppMessage[]>([]);
   // 文章列表宽度（可拖拽调整，持久化）
   const [articleListWidth, setArticleListWidth] = useState<number>(() => {
@@ -507,6 +513,20 @@ function App(): JSX.Element {
     updatePrefs({ fontSize: size });
   }, [updatePrefs]);
 
+  /**
+   * 切换某个「折叠键集合」偏好里的一项。
+   * 左侧栏与设置页的折叠各自成一份（浏览时收起 vs 整理时收起），逻辑一致所以共用这一处。
+   */
+  const toggleCollapsedKey = useCallback(
+    (field: "sidebarCollapsedGroups" | "organizeCollapsedGroups", key: string) => {
+      const current = prefsRef.current[field];
+      updatePrefs({
+        [field]: current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
+      });
+    },
+    [updatePrefs],
+  );
+
   /** 抽屉「全部文章」：清空订阅源选择并重置筛选条件 */
   const handleSelectAllFeeds = useCallback(() => {
     updatePrefs({ viewFilter: "all" });
@@ -805,20 +825,10 @@ function App(): JSX.Element {
     [state.articles],
   );
 
-  /** 右键菜单：分享（复制文章链接到剪贴板） */
-  const handleShareArticle = useCallback(
-    async (articleId: string) => {
-      const article = state.articles.find((a) => a.id === articleId);
-      if (!article?.link) return;
-      try {
-        await navigator.clipboard.writeText(article.link);
-        addMessage("success", "文章链接已复制，可以粘贴分享了");
-      } catch {
-        addMessage("error", "复制链接失败");
-      }
-    },
-    [state.articles, addMessage],
-  );
+  /** 打开分享面板（阅读视图工具栏 / 文章列表右键菜单共用入口） */
+  const handleShareArticle = useCallback((articleId: string, anchor: ShareAnchor) => {
+    setShareTarget({ articleId, anchor });
+  }, []);
 
   /**
    * 清理本地缓存：清内存里的解析缓存（全文提取结果 + 列表预览文本 + 搜索索引），
@@ -931,16 +941,11 @@ function App(): JSX.Element {
     });
   }, []);
 
-  /** 上移/下移分组 */
-  const handleMoveGroup = useCallback((groupId: string, direction: "up" | "down") => {
+  /** 拖动排序分组：移到 beforeGroupId 之前（null = 末尾）。分组顺序就是 groups 数组顺序 */
+  const handleReorderGroup = useCallback((groupId: string, beforeGroupId: string | null) => {
     setState((prev) => {
-      const idx = prev.groups.findIndex((g) => g.id === groupId);
-      const targetIdx = direction === "up" ? idx - 1 : idx + 1;
-      if (idx === -1 || targetIdx < 0 || targetIdx >= prev.groups.length) return prev;
-
-      const groups = [...prev.groups];
-      [groups[idx], groups[targetIdx]] = [groups[targetIdx], groups[idx]];
-
+      const groups = reorderGroups(prev.groups, groupId, beforeGroupId);
+      if (!groups) return prev;
       const next = { ...prev, groups };
       rssService.saveStateDebounced(next);
       return next;
@@ -1056,6 +1061,14 @@ function App(): JSX.Element {
     : null;
   const hasMoreArticles = visibleArticles.length > renderLimit;
 
+  // 分享面板的目标文章与来源（文章可能已被刷新移除，取不到时面板不渲染）
+  const shareArticle = shareTarget
+    ? state.articles.find((a) => a.id === shareTarget.articleId) ?? null
+    : null;
+  const shareFeed = shareArticle
+    ? state.feeds.find((f) => f.id === shareArticle.feed_id) ?? null
+    : null;
+
   return (
     <div className="app">
       <TitleBar
@@ -1127,6 +1140,7 @@ function App(): JSX.Element {
                 selectedArticle.link && void handleOpenArticle(selectedArticle.link)
               }
               onOpenExternal={(url) => void handleOpenArticle(url)}
+              onShare={(anchor) => handleShareArticle(selectedArticle.id, anchor)}
               fontSize={prefs.fontSize}
               proxyArg={buildProxyArg(prefs)}
             />
@@ -1159,6 +1173,8 @@ function App(): JSX.Element {
                 setShowSettings(true);
                 setDrawerOpen(false);
               }}
+              collapsedKeys={prefs.sidebarCollapsedGroups}
+              onToggleGroupCollapsed={(key) => toggleCollapsedKey("sidebarCollapsedGroups", key)}
             />
           </div>
         </>
@@ -1184,7 +1200,9 @@ function App(): JSX.Element {
           onUpdateFeed={handleUpdateFeed}
           onMoveFeed={handleMoveFeed}
           onMoveToGroup={handleMoveToGroup}
-          onMoveGroup={handleMoveGroup}
+          onReorderGroup={handleReorderGroup}
+          collapsedGroups={prefs.organizeCollapsedGroups}
+          onToggleGroupCollapsed={(key) => toggleCollapsedKey("organizeCollapsedGroups", key)}
           onAddGroup={handleAddGroup}
           onRenameGroup={handleRenameGroup}
           onRemoveGroup={handleRemoveGroup}
@@ -1203,6 +1221,16 @@ function App(): JSX.Element {
             setPendingFeedUrl(null);
             addMessage("success", `已添加订阅：${url}`);
           }}
+        />
+      )}
+
+      {shareTarget && shareArticle && (
+        <ShareMenu
+          article={shareArticle}
+          feed={shareFeed}
+          anchor={shareTarget.anchor}
+          onClose={() => setShareTarget(null)}
+          onMessage={addMessage}
         />
       )}
 

@@ -933,6 +933,74 @@ pub async fn write_file_text(target_path: String, content: String) -> Result<(),
     write_atomically(std::path::Path::new(&target_path), content.as_bytes())
 }
 
+/// 跟随 HTML 层跳转（meta refresh）的最大跳数：跳转页链一般只有一跳，留些余量。
+const MAX_META_REFRESH_HOPS: usize = 3;
+
+/// ASCII 大小写不敏感的子串查找（标签名 / 属性名大小写不定；中文内容不参与比较，按字节安全）
+fn find_ignore_ascii_case(haystack: &str, needle: &str) -> Option<usize> {
+    let hay = haystack.as_bytes();
+    let pat = needle.as_bytes();
+    if pat.is_empty() || hay.len() < pat.len() {
+        return None;
+    }
+    (0..=hay.len() - pat.len()).find(|&i| hay[i..i + pat.len()].eq_ignore_ascii_case(pat))
+}
+
+/// 从 meta 标签里取 `content="0;url=…"` 中的目标地址
+fn meta_refresh_target(tag: &str) -> Option<&str> {
+    let at = find_ignore_ascii_case(tag, "content")?;
+    let rest = tag.get(at..)?;
+    let eq = rest.find('=')?;
+    let after = rest[eq + 1..].trim_start();
+    let first = after.chars().next()?;
+    let value = if first == '"' || first == '\'' {
+        let inner = &after[1..];
+        let end = inner.find(first)?;
+        &inner[..end]
+    } else {
+        let end = after
+            .find(|c: char| c.is_whitespace() || c == '>')
+            .unwrap_or(after.len());
+        &after[..end]
+    };
+    let url_at = find_ignore_ascii_case(value, "url")?;
+    let tail = value.get(url_at + 3..)?.trim_start();
+    let tail = tail.strip_prefix('=')?.trim_start();
+    let tail = tail.trim_matches(|c| c == '"' || c == '\'');
+    if tail.is_empty() {
+        None
+    } else {
+        Some(tail)
+    }
+}
+
+/// 从 HTML 里找 `<meta http-equiv="refresh" content="…;url=…">` 的目标（相对地址按 base 解析）。
+///
+/// 为什么需要它：这类跳转是 **HTTP 200 + 一个 meta 标签**，HTTP 客户端不会跟随，抓回来只是
+/// 一张没有正文的跳转页 —— 例如 `diygod.cc/europe-travel` 会跳到 B 站视频页，
+/// 不跟随的话「获取全文」在这种页面上必然什么都拿不到。
+fn extract_meta_refresh(html: &str, base: &url::Url) -> Option<url::Url> {
+    // 跳转页的 meta 一定在文档开头，只看前面一段（按字符截取，避免切坏 UTF-8）
+    let head: String = html.chars().take(4096).collect();
+    let mut cursor = 0;
+    while let Some(rel) = find_ignore_ascii_case(&head[cursor..], "<meta") {
+        let start = cursor + rel;
+        let end = find_ignore_ascii_case(&head[start..], ">")
+            .map(|e| start + e + 1)
+            .unwrap_or(head.len());
+        let tag = &head[start..end];
+        if find_ignore_ascii_case(tag, "refresh").is_some() {
+            if let Some(target) = meta_refresh_target(tag) {
+                if let Ok(url) = base.join(target) {
+                    return Some(url);
+                }
+            }
+        }
+        cursor = end;
+    }
+    None
+}
+
 /// 抓取文章原文 HTML（用于获取 RSS 摘要的完整正文）
 #[tauri::command]
 pub async fn fetch_article_html(
@@ -946,24 +1014,44 @@ pub async fn fetch_article_html(
     }
 
     let client = cached_http_client(&cache, proxy.as_ref())?;
-    let response =
-        client.get(parsed_url.clone()).send().await.map_err(|e| {
-            CommandError::Network(format!("{}：{}", parsed_url, root_cause_chain(&e)))
-        })?;
+    let mut target = parsed_url;
+    let mut body = String::new();
 
-    let status = response.status();
-    if !status.is_success() {
-        return Err(CommandError::Network(format!(
-            "HTTP 状态码 {}（{}）",
-            status.as_u16(),
-            parsed_url
-        )));
+    for hop in 0..=MAX_META_REFRESH_HOPS {
+        let response = client
+            .get(target.clone())
+            .send()
+            .await
+            .map_err(|e| CommandError::Network(format!("{}：{}", target, root_cause_chain(&e))))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(CommandError::Network(format!(
+                "HTTP 状态码 {}（{}）",
+                status.as_u16(),
+                target
+            )));
+        }
+
+        body = response
+            .text()
+            .await
+            .map_err(|e| CommandError::Network(root_cause_chain(&e)))?;
+
+        if hop == MAX_META_REFRESH_HOPS {
+            break;
+        }
+        // HTTP 200 + meta refresh 的跳转页：跟到真正的页面，否则拿到的是没有正文的空壳
+        match extract_meta_refresh(&body, &target) {
+            Some(next) if matches!(next.scheme(), "http" | "https") && next != target => {
+                log::info!("fetch_article_html: 跟随 meta refresh {} → {}", target, next);
+                target = next;
+            }
+            _ => break,
+        }
     }
 
-    response
-        .text()
-        .await
-        .map_err(|e| CommandError::Network(root_cause_chain(&e)))
+    Ok(body)
 }
 
 /// 代理连通性测试结果
@@ -1375,6 +1463,48 @@ mod tests {
     fn parse_first(xml: &str, url: &str) -> Article {
         let feed = parser::parse(xml.as_bytes()).expect("测试 feed 应能解析");
         build_article(&feed, &short_hash(url), &feed.entries[0])
+    }
+
+    /// 真实形态：diygod.cc/europe-travel 是「200 + meta refresh」跳到 B 站视频页的跳转页，
+    /// 不跟随的话「获取全文」抓到的就是这张没有正文的空壳。
+    #[test]
+    fn meta_refresh_is_extracted_from_redirect_shell() {
+        let base = url::Url::parse("https://diygod.cc/europe-travel").unwrap();
+        let html = r#"<!doctype html><title>Redirecting to: https://www.bilibili.com/video/BV1hzqrBtEMP/</title><meta http-equiv="refresh" content="2;url=https://www.bilibili.com/video/BV1hzqrBtEMP/"><meta name="robots" content="noindex"><link rel="canonical" href="https://www.bilibili.com/video/BV1hzqrBtEMP/"><body><a href="https://www.bilibili.com/video/BV1hzqrBtEMP/">Redirecting</a></body>"#;
+        let got = extract_meta_refresh(html, &base).expect("应解析出跳转目标");
+        assert_eq!(got.as_str(), "https://www.bilibili.com/video/BV1hzqrBtEMP/");
+    }
+
+    #[test]
+    fn meta_refresh_handles_case_quotes_and_relative_targets() {
+        let base = url::Url::parse("https://example.com/a/b").unwrap();
+        let cases = [
+            (
+                r#"<meta http-equiv=refresh content="0;URL=/moved/here">"#,
+                "https://example.com/moved/here",
+            ),
+            (
+                r#"<meta http-equiv='REFRESH' content='3; url=next.html'>"#,
+                "https://example.com/a/next.html",
+            ),
+            (
+                // content 写在 http-equiv 之前
+                r#"<meta content="0;url=https://other.example/x" http-equiv="refresh">"#,
+                "https://other.example/x",
+            ),
+        ];
+        for (html, want) in cases {
+            let got = extract_meta_refresh(html, &base).expect(html);
+            assert_eq!(got.as_str(), want, "{html}");
+        }
+    }
+
+    #[test]
+    fn normal_page_is_not_treated_as_redirect() {
+        let base = url::Url::parse("https://example.com/post").unwrap();
+        // canonical / robots / description 这些常见 meta 都不能被当成跳转
+        let html = r#"<html><head><meta charset="utf-8"><meta name="robots" content="index,follow"><meta name="description" content="看看 url= 出现在正文 meta 里"><link rel="canonical" href="https://example.com/post"></head><body><p>正文</p></body></html>"#;
+        assert!(extract_meta_refresh(html, &base).is_none());
     }
 
     #[test]

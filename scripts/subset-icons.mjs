@@ -25,12 +25,16 @@ import { join } from "node:path";
 /**
  * 不是图标、但恰好是合法连字名的代码标识符（数据值 / CSS / HTML 标签名 / 类型名）。
  * 自动提取时排除，避免把无关字形打进子集。
+ *
+ * 注意：只能排除「确认不会被当图标用」的名字。曾经把 image / person 也列在这里，结果列表
+ * 卡片的「含图片」和阅读视图的作者图标在界面上退化成原始文字（IMAGE / PERSON）——名字像代码
+ * 标识符，不代表项目没把它当图标。要改这张表，先跑 .verify/check-icons.mjs 看结论。
  */
 const NON_ICON_TOKENS = new Set([
   "feed", "http", "light", "list", "radio", "source", "tab", "title",
   // 代码里出现的 CSS 属性 / HTML 标签 / TS 类型名，不是图标
   "class", "height", "width", "style", "script", "iframe", "input", "select", "link",
-  "svg", "text", "image", "unknown", "document", "person", "merge",
+  "svg", "text", "unknown", "merge",
 ]);
 
 /** 递归收集 src 下 .ts/.tsx 里的字符串字面量与 JSX 文本标识符 */
@@ -57,6 +61,11 @@ const FONT_CSS_URL =
 const CHROME_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const OUT = "src/assets/fonts/material-symbols-rounded.woff2";
+/**
+ * 子集里包含的图标清单（落盘供 .verify/check-icons.mjs 校验）。
+ * 两边各存一份手写清单迟早会不同步 —— 校验就会对着过期清单报「没缺」。
+ */
+const ICON_LIST_OUT = "src/assets/fonts/material-symbols-rounded.icons.json";
 
 /** 反查图标名 → 真实连字目标字形名 */
 const MAP_PY = `
@@ -173,6 +182,8 @@ async function main() {
 
   copyFileSync(subset, OUT);
   console.log("已写入", OUT);
+  writeFileSync(ICON_LIST_OUT, `${JSON.stringify({ icons: ICONS }, null, 2)}\n`, "utf8");
+  console.log("已写入", ICON_LIST_OUT);
 }
 
 main().catch((err) => {

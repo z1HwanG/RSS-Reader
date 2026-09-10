@@ -29,6 +29,12 @@ interface FeedListProps {
   onRefreshFeed: (feedId: string) => void;
   /** 右键菜单：管理订阅源（打开设置） */
   onManageFeeds: () => void;
+  /**
+   * 已折叠的分组键（分组 id；未分组用本文件的 UNGROUPED_KEY 哨兵值）。
+   * 由外层持久化（偏好 `sidebarCollapsedGroups`）：抽屉关掉再打开、重启应用都还记得。
+   */
+  collapsedKeys: string[];
+  onToggleGroupCollapsed: (key: string) => void;
 }
 
 interface ContextMenuState {
@@ -61,10 +67,12 @@ export function FeedList({
   onMarkFeedRead,
   onRefreshFeed,
   onManageFeeds,
+  collapsedKeys,
+  onToggleGroupCollapsed,
 }: FeedListProps): JSX.Element {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
-  // 折叠的分组键集合（会话内状态，不持久化）
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+  // 折叠状态由外层持有并持久化，这里只做一次集合化便于查询
+  const collapsed = useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   // 右键菜单按真实尺寸夹进视口：抽屉底部右键时不会被窗口下沿切掉
   const { ref: ctxMenuRef, position: ctxMenuPosition } = useMenuPosition<HTMLDivElement>(ctxMenu);
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
@@ -96,17 +104,7 @@ export function FeedList({
 
   const hasGroups = groups.length > 0;
 
-  const toggleGroup = (key: string): void => {
-    setCollapsedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
+  const toggleGroup = (key: string): void => onToggleGroupCollapsed(key);
 
   // 点击外部关闭右键菜单
   useEffect(() => {
@@ -192,7 +190,7 @@ export function FeedList({
         {!hasGroups
           ? feeds.map((feed) => renderFeedItem(feed, false))
           : sections.map((section) => {
-              const isCollapsed = collapsedKeys.has(section.key);
+              const isCollapsed = collapsed.has(section.key);
               return (
                 <div key={section.key} className="feed-section">
                   <div

@@ -39,11 +39,12 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 
 - Add / edit / delete RSS 2.0, RSS 1.0, Atom and JSON Feed subscriptions
 - Groups: create, rename and delete groups, move feeds between them; the sidebar lists collapsible
-  group sections with unread counts
+  group sections with unread counts (the collapsed state is persisted with preferences)
 - Manual ordering: Settings → "Groups & order" lists every feed in group + in-group order — hold the
-  handle at the start of a row to drag it anywhere (across groups included), or use the per-row
-  "move to top / move to bottom" buttons; the in-group order is persisted and drives the sidebar and
-  the article list
+  handle at the start of a row to drag it anywhere (across groups included). **Groups can be reordered
+  the same way** (drag the handle on a group header; drop it on the "ungrouped" block to send it after
+  every group) and **collapsed** (state persisted with preferences). Order is persisted and drives the
+  sidebar and the article list
 - OPML batch import / export (newly imported feeds are refreshed in the background)
 - Per-feed reading mode: in-app reader or open in the external browser
 - Every refresh is a **full fetch**: the single-feed refresh and the title-bar "refresh all" share one path,
@@ -72,12 +73,16 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
   listed as pills, and a feed thumbnail is used as the lead image when the body has no image
 - Full-text search over titles, bodies, summaries, authors and tags (bodies indexed as plain text,
   capped at 4096 characters per article to bound memory)
-- One-click full-text fetch when a feed summary is too short: heuristic container selection plus
-  removal of ads, comments and sidebars, with the 20 most recent articles cached
+- One-click full-text fetch: the entry point lives permanently in the reading-view toolbar, so any
+  article can be fetched on demand; fetching is entirely silent — no notification on success or
+  failure, and nothing appended to the end of the article. The button state and the body itself are
+  the only feedback. Extraction uses heuristic container selection plus removal of ads, comments and
+  sidebars, with the 20 most recent articles cached
 - Starring, read / unread state, mark all as read, and a per-feed context menu to mark read or
   refresh
 - Batched list rendering: 300 articles initially, more loaded on scroll
-- Open the original article in the system browser, or copy its link
+- Open the original article in the system browser; the share panel offers copy link / copy as
+  Markdown / copy title + summary, send by email, share to X or Weibo, and save as a Markdown file
 
 ### Images and networking
 
@@ -89,6 +94,9 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
   that has jsdelivr candidates); GitHub Pages images additionally fall back to the `cdn.jsdelivr.net`
   mirror
 - 50 MB per-image limit, only `http` / `https` images allowed
+- Images that declare `width` / `height` (the browser reserves height for those) show a light
+  placeholder until they load, so the reserved space doesn't read as a gap in the article;
+  an image that ultimately fails is hidden, reserved height included
 - HTTP / SOCKS5 proxy with host and port validation plus a one-click connectivity test (multiple
   probe targets to avoid single-site false negatives)
 - SOCKS5 uses `socks5h`, so names are resolved by the proxy and local DNS poisoning is avoided
@@ -295,8 +303,19 @@ node scripts/subset-icons.mjs   # Requires uv and network access (full font from
 ```
 
 The script extracts the icon list from the source, downloads the full font, subsets it and verifies
-every ligature with HarfBuzz, writing directly to
-`src/assets/fonts/material-symbols-rounded.woff2`.
+every ligature with HarfBuzz. It writes the font to
+`src/assets/fonts/material-symbols-rounded.woff2`, and the list of icons it contains to
+`material-symbols-rounded.icons.json`.
+
+A glyph that never made it into the subset renders as its raw name (`IMAGE`, `PERSON`, `LINK`), so two
+checks guard against it:
+
+- `node .verify/check-icons.mjs` — static: is every name used as an icon in the source in the list?
+- `node .verify/probe/verify-icons.mjs` — runtime: measures icon elements in the real DOM, where a
+  missing glyph is roughly a word wide instead of one font size.
+
+The script's deny-list only excludes names that are certainly never used as icons — `image` and
+`person` were once on it by mistake, and those two icons showed up as words in the UI.
 
 ## Keyboard shortcuts
 
@@ -339,7 +358,7 @@ the typed `call<T>()` helper in `src/features/rss/services/rssService.ts`:
 | `load_state` | Read persisted state (feeds / articles / groups) from `app_data_dir/state.json` |
 | `save_state` | Atomically write the current state back to `state.json` |
 | `fetch_feed` | Fetch and parse a feed (full fetch, no conditional requests) |
-| `fetch_article_html` | Fetch the original article HTML when the summary is too short |
+| `fetch_article_html` | Fetch the original article HTML when the body is short, looks truncated, or is an external file |
 | `backup_state` | Export the current state as JSON to a given path |
 | `restore_state` | Read a full state from a given JSON file |
 | `read_file_text` | Read a text file (OPML import) |
@@ -419,12 +438,15 @@ A system dependency is missing; install it with the command for your distributio
 
 ## Known limitations
 
-- **Full-text extraction**: only triggered when a feed summary is too short (or when the body is an
-  external file). Extraction picks the article container by scoring block-level candidates
+- **Full-text extraction**: the entry point is always available in the reading-view toolbar, and a
+  truncation cue (an ellipsis tail, or a short body ending in a "read more" cue without a disclaimer
+  boilerplate) is surfaced in that button's tooltip; fetching reports nothing either way.
+  Extraction picks the article container by scoring block-level candidates
   (text × (1 − link density) + paragraphs and images, with comment areas and site chrome stripped),
   so it still cannot cover every site: pages whose body is rendered by JavaScript, or that answer
-  non-browser requests with a security / Cloudflare challenge page, yield nothing — the UI then
-  states the specific reason and points at "open original".
+  non-browser requests with a security / Cloudflare challenge page, yield nothing — a manual fetch
+  then ends silently. Only when a feed ships no body at all does the reading view say so in place
+  ("the original page had no extractable body — use open original").
 - **Markdown rendering**: a fallback for feeds that publish Markdown bodies. It covers headings,
   lists, quotes, code blocks, tables and inline markup, but is not a full CommonMark implementation
   (nested lists render one level deep, HTML blocks are not parsed).

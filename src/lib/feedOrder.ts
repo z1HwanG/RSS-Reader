@@ -56,6 +56,37 @@ export function reorderFeedsInGroup(
   return next.map((f, i) => ({ ...f, sort_order: i }));
 }
 
+/**
+ * 重排分组顺序：把 `groupId` 移到 `beforeId` 之前；`beforeId` 为 null 时移到末尾。
+ *
+ * 分组的先后由 `state.groups` 的数组顺序决定（没有 sort_order 字段），返回重排后的数组即可。
+ * 返回 null 表示无需变更（找不到该分组、原地不动、或下标越界）。
+ */
+export function reorderGroups(
+  groups: Group[],
+  groupId: string,
+  beforeId?: string | null,
+): Group[] | null {
+  const idx = groups.findIndex((g) => g.id === groupId);
+  if (idx === -1) return null;
+
+  let targetIdx: number;
+  if (beforeId === undefined || beforeId === null) {
+    targetIdx = groups.length - 1;
+  } else {
+    const dropIdx = groups.findIndex((g) => g.id === beforeId);
+    if (dropIdx === -1 || dropIdx === idx) return null;
+    // 自身先移除，插入位置随之前移
+    targetIdx = dropIdx > idx ? dropIdx - 1 : dropIdx;
+  }
+  if (targetIdx < 0 || targetIdx >= groups.length || targetIdx === idx) return null;
+
+  const next = [...groups];
+  const [moved] = next.splice(idx, 1);
+  next.splice(targetIdx, 0, moved);
+  return next;
+}
+
 /** 未分组（或者分组已被删除）时的排序位置：排在所有分组之后 */
 function groupRank(groupId: string | null, groups: Group[]): number {
   if (groupId === null) return groups.length;

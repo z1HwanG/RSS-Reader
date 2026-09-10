@@ -42,8 +42,8 @@ interface ArticleListProps {
   onToggleRead?: (articleId: string, read: boolean) => void;
   /** 右键菜单：切换星标 */
   onToggleStar?: (articleId: string) => void;
-  /** 右键菜单：分享（复制文章链接） */
-  onShare?: (articleId: string) => void;
+  /** 右键菜单：分享（打开分享面板，锚点为右键位置） */
+  onShare?: (articleId: string, anchor: { left: number; top: number }) => void;
 }
 
 /** 文章右键菜单状态 */
@@ -422,13 +422,15 @@ export function ArticleList({
           </button>
           <button
             className="dropdown-item"
-            disabled={!menuArticle.link}
             onClick={() => {
-              if (onShare) runAction(onShare);
+              if (!onShare || !ctxMenu) return;
+              // 面板接着右键位置展开；这里不走 runAction（它只传 articleId，带不出锚点）
+              onShare(ctxMenu.articleId, { left: ctxMenu.x, top: ctxMenu.y });
+              setCtxMenu(null);
             }}
           >
             <span className="material-symbols-rounded">share</span>
-            分享
+            分享…
           </button>
         </div>
       )}

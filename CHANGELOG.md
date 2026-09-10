@@ -1,4 +1,4 @@
-# 更新日志 / Changelog
+﻿# 更新日志 / Changelog
 
 本文件记录本项目的所有重要变更。
 All notable changes to this project are documented in this file.
@@ -7,6 +7,132 @@ All notable changes to this project are documented in this file.
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
+
+## [0.5.0] - 2026-09-10
+
+### 新增 / Added
+
+- **分组可以折叠；行内与分组的档位移动按钮下线**：「分组与排序」里每个分组标题行（含「未分组」）
+  多了折叠按钮，折起后只留标题与条数徽标，折叠状态跟着偏好一起持久化（`preferences.organizeCollapsedGroups`）。
+  同时移除了订阅源行的「置顶 / 置底」与分组标题行的「上移 / 下移分组」按钮 —— 拖动本来就能落到
+  任意位置（含跨分组），档位式移动只是拖拽的退化形式，留着只会让控件变挤。
+  纯函数能力（`reorderFeedsInGroup` 的 top / bottom / up / down）保留，拖拽提交仍然走它。
+  Groups can now be collapsed (state persisted with preferences); the per-row "move to top /
+  bottom" and per-group "move up / down" buttons were removed since dragging covers them.
+
+- **分组也能拖动排序**：此前只有订阅源行可以拖（分组只有「上移 / 下移分组」两个按钮）。
+  现在分组标题行左侧也有拖拽手柄，按住即可把分组拖到任意位置 —— 拖到某个分组标题上 = 排到它前面，
+  拖到「未分组」区块 = 排到所有分组之后，顺序随 `state.groups` 持久化。
+  顺带把「未分组」区块从列表**最前**挪到**最后**：它此前与排序语义相反
+  （`feedOrder.ts` 的 `groupRank` 把未分组排在所有分组之后），会让「拖到未分组上 = 排最后」
+  这条落点规则自相矛盾 —— 拖到最上面反而跑到最后一名。
+  Group headers can now be reordered by dragging their handle; the "ungrouped" block moved to the
+  bottom so that dropping onto it (meaning "after every group") matches what the user sees.
+
+- **正文里写出来的网址会显示成可点链接**：HTML 正文里的 `<a>` 一直正常，但**纯文本**与
+  **Markdown** 正文里直接写出来的地址（例如「详见 https://…」）此前只会当普通文字显示 ——
+  点不了，也没法直接复制。现在 `textToHtml` 与 `inlineMarkdown` 都会把这类裸链接转成链接：
+  剥掉地址末尾的中英文标点（`https://a.com。`、`(https://a.com).` 都能正确切分），
+  跳过已经包在 `<a>` 里的地址（不会生成嵌套链接），只认 http(s)（`ftp://`、`mailto:` 保持原样）。
+  Bare URLs written directly in plain-text or Markdown bodies are now rendered as clickable links.
+
+- **分享面板：分享不再只有「复制链接」**。阅读视图工具栏的「复制链接」改为「分享」，文章列表右键菜单的
+  「分享」也改为打开同一个面板，按「复制 / 发送 / 保存」分组提供七种方式 —— 复制链接、
+  复制为 Markdown（`[标题](链接)`）、复制标题与摘要（纯文本，适合粘进聊天窗口）、
+  通过邮件发送（调用系统默认邮件客户端）、分享到 X、分享到微博、保存为 Markdown 文件
+  （含来源、作者、发布时间、标签与摘要）。
+  复制类动作在面板内即时打勾反馈、且面板不自动关闭，方便连着一个接一个复制；
+  没有原文链接的文章也能分享摘要或存成文件（面板里依赖链接的项自动禁用并说明原因）。
+  Sharing is no longer copy-only: the reading-view button and the list context menu now open one
+  share panel offering copy / send / save actions (link, Markdown link, title + summary, email,
+  X, Weibo, and save as a Markdown file).
+
+### 修复 / Fixed
+
+- **正文里图片位置留下一大片空白**：站点常在 `<img>` 上写 `width`/`height`，浏览器会按宽高比
+  预留高度（实测一张 640×480 的图在 624px 宽的正文里预留 468px）；图片经本地代理中转、加载慢或
+  加载失败时，那块空间就是一片凭空的白 —— 一篇文章多张图时读起来像正文断了。
+  现在**带尺寸声明的图片**先给一块浅底（CSS `img[width][height]`），一眼能看出「这里是图片位」
+  而不是排版出错；刻意只挑带尺寸的图，正文里的小图标不会被误加底色。彻底失败的图片依旧会被隐藏、
+  连预留高度一起收掉。
+  实现上刻意没有用 JS 打标记：正文是 `dangerouslySetInnerHTML` 注入的，挂载后补的 class 实测会丢
+  （渲染结果里只剩 `class=""`），交给 CSS 选择器反而稳。
+  Images that declare `width`/`height` now get a light placeholder background while they load — the
+  browser reserves height for them, so a slow or failed image used to leave a patch of blank page.
+  Deliberately done in CSS (a JS-applied class was observed to be dropped on the injected markup).
+
+- **左侧栏的分组折叠状态没有保存**：订阅源抽屉里的收起状态此前是组件内 state，关掉抽屉或重启应用
+  就恢复成全部展开。现在它跟着偏好持久化（`preferences.sidebarCollapsedGroups`），并且与
+  设置 →「分组与排序」里的折叠（`organizeCollapsedGroups`）**各存一份、互不影响** ——
+  一个是浏览时收起不想看的组，一个是整理时收起已排好的组。
+  The sidebar's group collapse state is now persisted (previously component-only), kept separately
+  from the "Groups & order" page so the two views don't fight each other.
+
+- **「获取全文」在跳转页上抓不到东西**：有些文章的原地址是「HTTP 200 + `<meta http-equiv="refresh">`」
+  的跳转页（例如 `diygod.cc/europe-travel` 实际是跳到 B 站视频页的过渡页），HTTP 客户端只跟随
+  HTTP 层的重定向，抓回来就是那张没有正文的空壳 —— 提取器只能得到一行「Redirecting from … to …」，
+  低于最小正文字数（120）而被丢弃，表现就是点了「获取全文」什么都没发生。现在
+  `fetch_article_html` 会解析并跟随这类跳转（最多 3 跳，相对地址按当前页解析），再去提取正文。
+  "Fetch full text" now follows HTML-level redirects (`<meta http-equiv="refresh">`): those pages
+  answer HTTP 200 with an empty shell, so the fetch previously had nothing to extract.
+
+- **正文里的链接拿不到地址**：WebView 的原生右键菜单被全局右键守卫屏蔽（为了不让
+  Back / Refresh / Save as 那套浏览器菜单遮住界面，见 `lib/contextMenuGuard.ts`），
+  代价是正文里的链接失去了「复制链接地址」——只能点开，没法把地址复制走。现在在正文链接上
+  右键会弹出应用自己的菜单：「复制链接地址」（相对地址按文章的 `data-link-base` 解析成绝对
+  地址，复制后短暂显示「已复制」）与「在浏览器中打开」。
+  实现上用的是原生监听器而不是 React 的 `onContextMenu`：正文是 `dangerouslySetInnerHTML`
+  注入的，实测浏览器真实右键（`button=2` / trusted）走不到 React 合成事件上，只有脚本派发才
+  会触发 —— 这一点让「先写 React handler」看起来能用、实际不生效。
+  Right-clicking a link in an article body now offers "copy link address" through the app's own
+  menu; the WebView's native context menu is suppressed globally, so the address was previously
+  out of reach.
+
+- **分享面板被窗口下沿切掉**：面板尺寸由内容决定，定位时按真实尺寸收边进视口。这里有两个坑 ——
+  展开动画的 `scale` 会被 `getBoundingClientRect()` 算进尺寸（实测量到 0.98 倍，底部顶出视口 11px），
+  改用 `offsetWidth` / `offsetHeight`；图标字体到位后行高变化会让面板长高，
+  因此同时监听 `ResizeObserver` 与 `document.fonts.ready` 重新收边。
+  The share panel is clamped into the viewport using its layout size (not the animated bounding box)
+  and re-clamps whenever its content size changes.
+
+- **图标字体子集缺少新图标**：项目对 Material Symbols 做了子集化，新增用到的 `insert_link` /
+  `data_object` / `notes` / `mail` / `alternate_email` / `public` / `description` 已通过
+  `node scripts/subset-icons.mjs` 一并打进子集，否则图标位置会渲染成原始文字。
+  The icon-font subset was regenerated to include the newly used glyphs.
+
+- **界面上冒出大写英文单词（IMAGE / PERSON）**：图标字体是子集化的，而子集脚本的「非图标名」
+  排除名单把 `image` 与 `person` 也排除了，于是列表卡片的「含图片」提示和阅读视图的作者图标
+  退化成原始文字 —— 名字像代码标识符，不代表项目没把它当图标。已把这两个名字移出排除名单并
+  重新生成子集（68 个图标 / 106 个字形）。为免再犯：生成脚本会把子集清单落盘到
+  `src/assets/fonts/material-symbols-rounded.icons.json`，`.verify/check-icons.mjs`
+  （静态：源码里当图标用的名字是否都在清单里）与 `.verify/probe/verify-icons.mjs`
+  （运行时：量图标元素宽度，字形缺失时会宽成一个单词）互为兜底。
+  Capitalised words like IMAGE / PERSON showing up in the UI were missing glyphs: the subset
+  script's "not an icon" deny-list excluded `image` and `person`. Both were removed and the subset
+  regenerated; the generated icon list is now written to disk and validated both statically and at
+  runtime.
+
+- **源只给摘要的正文读不到全文、也找不到入口**：此前只按正文长度判断（不足 200 字才给「获取全文」），
+  于是「源给了两百多字、正文以省略号收尾」的文章既读不到全文、界面上也没有任何入口。现在把
+  **「被截断」和「本来就短」分开判断**：正文以省略号收尾一律视为截断；尾部带
+  「阅读全文 / Read more」引导的，只在正文较短且尾部不含免责话术时才采信 —— 实测长文尾部的
+  同类字样多是文末声明（小众软件）或目录模板（ByteByteGo），误判会让完整的文章也冒出「获取全文」，
+  点下去只能得到「提取到的正文没有更多」。同时阅读视图工具栏加了常驻的「获取全文」按钮，
+  不必等系统判断正文是否偏短，任何文章都能手动抓一次原文；**正文末尾不再有任何说明** ——
+  **获取全文不发任何通知**：成功与失败都不弹提示、不进消息中心，唯一反馈是按钮状态
+  （获取中… → 已获取全文）与正文本身；「源只给了摘要」这条线索只留在按钮的悬浮提示里。
+  Articles whose feed only ships an excerpt no longer become unreadable: being truncated is now
+  distinguished from simply being short (ellipsis tail, or a "read more" cue in a short body without
+  a disclaimer), and the reading-view toolbar carries a permanent "fetch full text" action. The end
+  of the article stays clean, and fetching reports nothing at all — the button state and the body
+  itself are the only feedback.
+
+- **抓到全文后「获取全文」按钮会消失**：入口的显示条件绑了「还没抓到全文」，于是刚点完按钮
+  就没了 —— 既像功能出了问题，也没法重抓一次。现在入口常驻（只要有原文链接），抓到之后就地
+  把文案换成「已获取全文」（图标变勾），再点一次就是重新抓取。
+  The "fetch full text" button used to disappear once a full text had been fetched, which read like
+  a malfunction and left no way to retry. The entry point now stays put and switches to a "fetched"
+  state instead.
 
 ## [0.4.0] - 2026-09-11
 > **本次发布更换了更新签名密钥 / Signing key rotated**：旧密钥口令丢失、无法继续签名，

@@ -10,7 +10,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 const BASE_ATTR = "data-link-base";
 
 /** 解析链接目标：相对地址用最近祖先容器上的 data-link-base 作为基准 */
-function resolveHref(anchor: HTMLAnchorElement): URL | null {
+export function resolveAnchorUrl(anchor: HTMLAnchorElement): URL | null {
   const raw = anchor.getAttribute("href") ?? "";
   if (!raw || raw.startsWith("#")) return null;
   const base =
@@ -37,7 +37,7 @@ export function installLinkGuard(): void {
       // 页内锚点保持默认行为（滚动到目标元素）
       if (!raw || raw.startsWith("#")) return;
 
-      const url = resolveHref(anchor);
+      const url = resolveAnchorUrl(anchor);
       // 无法解析或非 http(s)（mailto: / tel: 等）交给系统默认处理
       if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) return;
 
