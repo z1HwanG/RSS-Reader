@@ -296,44 +296,6 @@ Tauri 的 `app_data_dir` 由 `identifier` 决定，状态文件为其中的 `sta
 
 状态文件带 `schema_version`，旧版本文件在读取时由 `migrate_state` 升级。
 
-## 发布新版本
-
-1. 升版本号：`npm version minor --no-git-tag-version`，并同步 `src-tauri/Cargo.toml`、
-   `Cargo.lock`、`tauri.conf.json` 与两份 README 的项目状态。
-2. 带签名构建（私钥路径按实际填写）：
-
-   ```bash
-   export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/rss-reader.key"
-   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-   npm run tauri build
-   ```
-
-3. 产物在 `src-tauri/target/release/bundle/{msi,nsis}/`，每个安装包旁边会生成 `.sig` 签名文件。
-4. 把安装包与 `.sig` 一起上传到 GitHub / Forgejo 的 Release，并附上一个 `latest.json`：
-
-   ```json
-   {
-     "version": "0.3.2",
-     "notes": "本次更新说明",
-     "pub_date": "2026-09-10T12:00:00Z",
-     "platforms": {
-       "windows-x86_64": {
-         "signature": "<RSSReader_0.3.2_x64-setup.exe.sig 的内容>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.2/RSSReader_0.3.2_x64-setup.exe"
-       }
-     }
-   }
-   ```
-
-   其中 `version`、安装包文件名与 URL 里的 tag 必须都是本次发布的版本号——
-   客户端会用 `version` 与当前运行的版本比较，低于当前版本的一律不接受。
-
-   两个平台各自托管一份 `latest.json`：GitHub 的那份指向 GitHub 资源，Forgejo 的那份指向 Forgejo 资源，
-   客户端按顺序尝试，前一个失败自动回退到下一个。
-
-5. 客户端下次检查即可发现新版本。私钥 `~/.tauri/rss-reader.key` 必须妥善备份：
-   丢失后无法再签发现有用户能接受的更新包。
-
 ## 常见问题
 
 **添加订阅源提示「返回的是网页而不是 RSS/Atom 订阅源」**

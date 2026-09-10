@@ -17,6 +17,9 @@ dist/
 # Logs
 *.log
 
+# 本地草稿（不随仓库发布）
+blog/
+
 # OS
 .DS_Store
 Thumbs.db

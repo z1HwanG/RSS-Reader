@@ -332,45 +332,6 @@ Tauri derives `app_data_dir` from the `identifier`; the state file is `state.jso
 
 The state file carries a `schema_version`; older files are upgraded on read by `migrate_state`.
 
-## Releasing
-
-1. Bump the version: `npm version minor --no-git-tag-version`, then sync `src-tauri/Cargo.toml`,
-   `Cargo.lock`, `tauri.conf.json` and the project-status line in both READMEs.
-2. Build with the signing key (adjust the key path):
-
-   ```bash
-   export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/rss-reader.key"
-   export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-   npm run tauri build
-   ```
-
-3. Artifacts land in `src-tauri/target/release/bundle/{msi,nsis}/`, each with a `.sig` file next to it.
-4. Upload the installers and their `.sig` files to the GitHub / Forgejo release, plus a `latest.json`:
-
-   ```json
-   {
-     "version": "0.3.2",
-     "notes": "release notes",
-     "pub_date": "2026-09-10T12:00:00Z",
-     "platforms": {
-       "windows-x86_64": {
-         "signature": "<contents of RSSReader_0.3.2_x64-setup.exe.sig>",
-         "url": "https://github.com/z1HwanG/RSS-Reader/releases/download/v0.3.2/RSSReader_0.3.2_x64-setup.exe"
-       }
-     }
-   }
-   ```
-
-   The `version`, the installer file name and the tag in the URL must all be the version you are
-   publishing — clients compare `version` against the running build and reject anything lower.
-
-   Each host serves its own `latest.json`: the GitHub one points at GitHub assets and the Forgejo one
-   at Forgejo assets; the client tries them in order and falls back automatically.
-
-5. Clients pick the new version up on their next check. Back up the private key
-   `~/.tauri/rss-reader.key`: if it is lost you can no longer sign updates that existing installs
-   will accept.
-
 ## Troubleshooting
 
 **"Returned a web page instead of an RSS/Atom feed" when adding a feed**
