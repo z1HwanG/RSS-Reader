@@ -27,7 +27,7 @@ cloud service: network requests only happen when fetching feeds and article imag
 else stays on your machine. The UI follows the Fluent 2 visual language with a frameless custom
 title bar, and supports light, dark and system themes.
 
-**Project status**: `0.5.0`, early development; features and the persisted format (`schema_version`
+**Project status**: `0.6.0`, early development; features and the persisted format (`schema_version`
 in `state.json`) may still change. A Windows x64 installer is available on
 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) or
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases); macOS and Linux builds require building
@@ -52,6 +52,10 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
   so results no longer depend on local state
 - Refresh all feeds at once with a concurrency cap of 6; auto-refresh intervals of 10 / 15 / 20 /
   30 / 45 minutes or 1 hour
+- Bulk cleanup: Settings → "All feeds" can bulk-select **refresh-failed** or **stale** feeds (newest
+  article published more than 30 / 60 / 90 / 180 / 365 days ago, default 365), followed by the usual
+  "delete selected" confirmation; each feed's refresh state (last success, most recent error,
+  consecutive failure count) is persisted and failing feeds are marked in the list
 - Deep links: the app registers the `feed://` and `rssreader://` schemes, so clicking a link in the
   browser (for example RSSHub Radar's "Local reader") opens the app with the feed URL prefilled, or
   jumps to the feed if it is already subscribed
@@ -66,10 +70,7 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
   run-on blob), Markdown feeds rendered with headings, lists, quotes, code blocks and tables,
   inline `data:` URI images shown directly, and Atom `content src` external bodies offered as an
   open-in-browser entry point
-- Attachments are grouped by kind: images (thumbnail grid, click to zoom), audio and video
-  (**native inline player** — play and seek right in the reading view), and documents
-  (icon + type / size / duration + open action)
-- The reading view header shows author, date, estimated reading time and attachment count, tags are
+- The reading view header shows author, date, estimated reading time and audio/video count, tags are
   listed as pills, and a feed thumbnail is used as the lead image when the body has no image
 - Full-text search over titles, bodies, summaries, authors and tags (bodies indexed as plain text,
   capped at 4096 characters per article to bound memory)
@@ -84,7 +85,18 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 - Open the original article in the system browser; the share panel offers copy link / copy as
   Markdown / copy title + summary, send by email, share to X or Weibo, and save as a Markdown file
 
-### Images and networking
+### Translation
+
+- Multiple provider gateways: LLM endpoints over Chat Completions / Responses / Anthropic Messages,
+  plus built-in Microsoft / Google / DeepL / Tencent machine translation; configuration is persisted
+  to `translate-config.json`
+- Full-article translation: block-level (paragraph / heading / list item / quote / caption)
+  bilingual alignment, with each translation inserted below its source block
+- Streaming: translations are rendered incrementally over SSE, with progress shown in the toolbar
+- Selection translation: selecting body text opens a popup showing the source and the translation
+- Thinking can be disabled per provider; translations are cached locally by text + language
+
+### Media (images, audio and video)
 
 - Article images load through the local `rssimg://` protocol: Rust fetches them with a browser
   User-Agent, bypassing hotlink `Referer` checks and mixed-content blocking of `http` images;
@@ -97,30 +109,27 @@ from source as described below. Planned work is tracked in [TODO.md](TODO.md).
 - Images that declare `width` / `height` (the browser reserves height for those) show a light
   placeholder until they load, so the reserved space doesn't read as a gap in the article;
   an image that ultimately fails is hidden, reserved height included
+- Media in the body is rendered **inline**: video embeds from recognised platforms (Bilibili /
+  YouTube / Vimeo / Tencent Video / Youku) are replaced in place by a 16:9 player, and feed-provided
+  native audio / video plays immediately after the body (`preload="metadata"`). There is no separate
+  attachments section
+- Platform watch pages (YouTube / Vimeo) cannot serve as media sources and get an open-in-browser
+  action instead
+- **Iframes from unrecognised platforms are preserved** and sandboxed, since audio players are almost
+  always such iframes; `data-src` is promoted to `src` and protocol-relative `//host/...` is upgraded
+  to `https`
+- The CSP allows `media-src` and `frame-src` (`https:` + `http:` + `rssimg:`, …), without which
+  cross-origin players cannot load
+- When a feed ships no body, the original is fetched once automatically: any media element in the
+  body counts as success
+- Media bypasses the local proxy (that protocol does not support Range requests), so media hosts
+  behind a required proxy can only be opened in the browser
+
+### Networking
+
 - HTTP / SOCKS5 proxy with host and port validation plus a one-click connectivity test (multiple
   probe targets to avoid single-site false negatives)
 - SOCKS5 uses `socks5h`, so names are resolved by the proxy and local DNS poisoning is avoided
-
-### Audio and video playback
-
-- Audio / video attachments are embedded in the reading view with native players
-  (`preload="metadata"`: nothing is downloaded until you press play); videos use the feed thumbnail
-  as poster, and an "open in browser" action sits next to every player
-- The CSP explicitly allows `media-src` (`'self'` + `rssimg:` + `data:` + `blob:` + `https:` +
-  `http:`) — without that directive `default-src 'self'` blocks cross-origin media and the player
-  simply never loads, silently
-- Two kinds of source cannot play inline, and say so instead of failing silently: YouTube / Vimeo
-  entries (their Atom feeds only expose a watch page, never a direct media URL) and hosts that
-  forbid embedding (hotlink protection or a login wall)
-- **Video embeds inside the body** (a blog post that is nothing but a Bilibili / YouTube player)
-  render inline as a 16:9 player: `frame-src` allow-lists Bilibili / YouTube / Vimeo / Tencent
-  Video / Youku, and the iframe is sandboxed; the attachment area also keeps a card with title,
-  platform and an "open in browser" action
-- When a feed ships no body at all, the original is fetched once automatically — finding a video
-  embed counts as success, so video-only posts just open and play
-- Media does not go through the local proxy (that protocol serves images and does not support Range
-  requests; pulling a tens-of-MB episode in one shot would stall), so media hosts that require the
-  configured proxy can only be played via "open in browser"
 
 ### Appearance and preferences
 
@@ -185,8 +194,11 @@ RSS-Reader/
 │   ├── assets/fonts/                # Subset icon font
 │   ├── features/rss/                # RSS domain
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
-│   │   │                            # ArticleMedia / AddFeedModal / SettingsModal / ShareMenu
+│   │   │                            # SelectionTranslate / AddFeedModal / SettingsModal
+│   │   │                            # TranslateSettings / ShareMenu
 │   │   ├── services/rssService.ts   # Tauri IPC wrappers + debounced persistence
+│   │   ├── services/translateService.ts # Translation config, whole-article / selection calls,
+│   │   │                            # streaming subscription, result cache
 │   │   ├── services/shareService.ts # Builds shareable text and runs share actions
 │   │   ├── services/updateService.ts# In-app updater wrapper (check / download / install)
 │   │   └── types.ts                 # Shared DTOs (aligned with Rust snake_case)
@@ -197,6 +209,11 @@ RSS-Reader/
 │       ├── contextMenuGuard.ts      # Suppresses the WebView default context menu
 │       ├── contentRender.ts         # Body kind detection + rendering + bare-URL autolinking
 │       ├── articleExtract.ts        # Full-text extraction (block scoring), embeds, truncation
+│       ├── articleTranslate.ts      # Bilingual rendering: block extraction and re-insertion
+│       ├── segmentSplit.ts          # Segment-marker splitting (including partial stream splits)
+│       ├── translationCache.ts      # Translation result cache (pure core + storage backend)
+│       ├── selectionChipPosition.ts # Selection button / popup positioning (pure)
+│       ├── feedHygiene.ts           # Refresh-failed / stale feed selection (pure)
 │       ├── articleFilter.ts         # List filtering (feed / unread / starred / search)
 │       ├── articleDedupe.ts         # Cross-fetch dedupe and field merging
 │       ├── feedOrder.ts             # Feed and group ordering rules
@@ -270,9 +287,9 @@ Grab a build from Releases (both platforms carry the same files):
 
 | File | Notes |
 |------|-------|
-| `RSSReader_0.5.0_x64-setup.exe` | NSIS installer (recommended) |
-| `RSSReader_0.5.0_x64_en-US.msi` | MSI package |
-| `RSSReader_0.5.0_x64_portable.exe` | Portable single file; WebView2 must already be installed |
+| `RSSReader_0.6.0_x64-setup.exe` | NSIS installer (recommended) |
+| `RSSReader_0.6.0_x64_en-US.msi` | MSI package |
+| `RSSReader_0.6.0_x64_portable.exe` | Portable single file; WebView2 must already be installed |
 
 Requires Windows 10/11 x64 and the WebView2 runtime (preinstalled on Windows 11). No prebuilt macOS
 or Linux packages yet.
@@ -465,11 +482,12 @@ A system dependency is missing; install it with the command for your distributio
 - **Markdown rendering**: a fallback for feeds that publish Markdown bodies. It covers headings,
   lists, quotes, code blocks, tables and inline markup, but is not a full CommonMark implementation
   (nested lists render one level deep, HTML blocks are not parsed).
-- **Audio / video attachments**: no embedded player; playback is handed to the system browser
-  (the CSP `default-src 'self'` blocks cross-origin media, so an embedded player would just fail
-  silently).
+- **Audio / video**: players are embedded; when a platform only exposes a watch page (YouTube /
+  Vimeo entries) or forbids embedding, an open-in-browser action is shown instead of a silently
+  failing player. The volume of a cross-origin iframe cannot be controlled from this app.
 - **Article rendering**: HTML is cleaned by node removal rather than a full allow-list sanitizer, so
-  it assumes trusted feeds.
+  it assumes trusted feeds. Iframes are no longer removed outright (audio players depend on them);
+  they are kept and sandboxed instead.
 - **Platform builds**: `bundle.targets = all` only bundles targets for the host platform;
   cross-platform installers must be built on each OS.
 - **Sync**: no cloud sync; moving between devices requires backup / restore or OPML.

@@ -7,18 +7,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Article, Feed, MediaItem, ProxyConfig } from "../types";
 import * as rssService from "../services/rssService";
-import { ArticleMedia } from "./ArticleMedia";
 import type { ShareAnchor } from "./ShareMenu";
 import { getFullContent, setFullContent } from "../../../lib/fullContentCache";
+import {
+  isTranslateConfigured,
+  loadTranslateConfig,
+  loadTranslatePicker,
+  onTranslateConfigChange,
+  selectTranslationTarget,
+  setTranslateLanguages,
+  translateBlocks,
+  type TranslatePickerState,
+} from "../services/translateService";
+import { extractTranslatableBlocks, interleaveTranslations } from "../../../lib/articleTranslate";
+import { SelectionTranslate } from "./SelectionTranslate";
+import { LANGUAGE_OPTIONS, SOURCE_LANGUAGE_OPTIONS } from "../types";
 import { resolveAnchorUrl } from "../../../lib/linkGuard";
 import { useMenuPosition } from "../../../lib/useMenuPosition";
-import {
-  extractArticleFromDocument,
-  findVideoEmbeds,
-  MIN_USABLE_TEXT,
-  type ExtractedContent,
-  type VideoEmbed,
-} from "../../../lib/articleExtract";
+import { canonicalEmbedKey, extractArticleFromDocument, findVideoEmbeds, identifyVideoEmbed, MIN_USABLE_TEXT, type ExtractedContent, type VideoEmbed } from "../../../lib/articleExtract";
 import {
   classifyMedia,
   detectContentKind,
@@ -27,6 +33,7 @@ import {
   plainTextLength,
   readingMinutes,
   renderContent,
+  videoWatchPageHost,
 } from "../../../lib/contentRender";
 
 interface ArticleViewProps {
@@ -83,11 +90,6 @@ function pickFromSrcset(srcset: string): string {
   return candidates.length > 0 ? candidates[candidates.length - 1] : "";
 }
 
-/** 图片地址是否已是本地代理地址（避免二次改写） */
-function isProxied(src: string): boolean {
-  return src.startsWith(IMG_PROTOCOL_BASE);
-}
-
 /**
  * 规范化正文 HTML：
  * 1. 回填懒加载图片（data-src / data-original / data-lazy-src / data-original-src / srcset）；
@@ -100,8 +102,31 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   // 移除脚本类节点，以及可能触发整页跳转的 base / meta refresh / 表单
   doc
-    .querySelectorAll('script, iframe, object, embed, form, base, meta[http-equiv="refresh"]')
+    .querySelectorAll('script, object, embed, form, base, meta[http-equiv="refresh"]')
     .forEach((el) => el.remove());
+
+  // iframe **不再一律删除**：认不出平台的 iframe 里可能有音频播放器
+  // （Spotify / 小宇宙 / 网易云 / 各家播客托管的嵌入都是 iframe），
+  // 早先一律删掉等于直接丢内容。改成保留但收紧：懒加载 + sandbox，
+  // 与视频嵌入同一套权限；CSP 的 frame-src 决定哪些域真的能加载。
+  doc.querySelectorAll("iframe").forEach((frame) => {
+    // 懒加载写法：正文里常是 data-src，真正的 src 要补上（否则整块空白）
+    const lazy =
+      frame.getAttribute("data-src") ??
+      frame.getAttribute("data-original") ??
+      frame.getAttribute("data-lazy-src");
+    const current = (frame.getAttribute("src") ?? "").trim();
+    if (!current && lazy) frame.setAttribute("src", lazy.trim());
+
+    // **协议相对地址必须补成 https**：`//music.163.com/...`（网易云外链播放器就是这种写法）
+    // 在本应用的页面源下会解析成 http://，而 CSP 的 frame-src 只放行 https → 播放器被静默拦掉，
+    // 界面上一片空白、也看不到报错。这里统一补成 https。
+    const src = (frame.getAttribute("src") ?? "").trim();
+    if (src.startsWith("//")) frame.setAttribute("src", `https:${src}`);
+
+    frame.setAttribute("loading", "lazy");
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups");
+  });
 
   doc.querySelectorAll("img").forEach((img) => {
     const current = img.getAttribute("src") ?? "";
@@ -172,17 +197,6 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
   return doc.body.innerHTML;
 }
 
-/** 收集正文里已出现的图片原始地址（用于附件区判重） */
-function collectInlineImageSrcs(html: string): string[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const out: string[] = [];
-  doc.querySelectorAll("img").forEach((img) => {
-    const orig = img.getAttribute("data-orig-src");
-    if (orig) out.push(orig);
-  });
-  return out;
-}
-
 /**
  * 全文结果缓存（模块见 src/lib/fullContentCache.ts）：同一篇文章切走再切回不重复抓取与提取，
  * 设置里的「清理本地缓存」会清空它。
@@ -194,17 +208,83 @@ function extractArticleContent(html: string): ExtractedContent {
 }
 
 /**
- * 视频嵌入占位：正文里出现视频嵌入时，在正文位置留一个 sentinel 元素，
- * 挂载后由 replaceEmbedSentinels 换成真正的播放器节点。
- * 不直接把 iframe 塞进 dangerouslySetInnerHTML，是为了让 React 不再管这块 DOM
- * ——否则每次重渲染都会把正在播放的播放器整个重建。
+ * 把视频嵌入放回正文的**原位**，并回传按出现顺序排好的 embeds（sentinel 的下标即数组下标）。
+ *
+ * 三条规则：
+ * 1. 认得平台的视频 iframe（B 站 / YouTube / Vimeo / 腾讯 / 优酷），**就地**换成 sentinel，
+ *    交给自家播放器渲染（带 16:9 占位，加载时不会跳版）；
+ * 2. 只在链接里出现地址的（最常见：正文就一句「视频地址」加个链接），插到**该链接所在块之后**，
+ *    原链接保留；
+ * 3. 实在定位不到就追加到正文末尾，至少不丢。
+ *
+ * **认不出平台的 iframe 保持原样**（不删、也不包成视频框）：音频播放器几乎都是这类 iframe
+ * （Spotify / 小宇宙 / 网易云 / 播客托管），删掉就等于把播放器丢了；
+ * 它们由 normalizeArticleHtml 统一加 sandbox 后按原尺寸加载。
+ *
+ * 早期实现是「删掉所有 iframe，再把 sentinel 全部追加到正文末尾」，
+ * 于是播放器跑到文末、和底部附件区里的同一个播放器重复出现两遍。
  */
-function embedSentinelHtml(embeds: VideoEmbed[]): string {
-  if (embeds.length === 0) return "";
-  return embeds.map((_, index) => `<div data-rss-embed="${index}"></div>`).join("");
+function placeEmbedsInPlace(
+  bodyHtml: string,
+  embeds: readonly VideoEmbed[],
+): { html: string; embeds: VideoEmbed[] } {
+  if (embeds.length === 0) return { html: bodyHtml, embeds: [] };
+  const doc = new DOMParser().parseFromString(bodyHtml, "text/html");
+  const ordered: VideoEmbed[] = [];
+  // 用规范化身份去重：正则扫出的地址里 `&` 是 `&amp;`，DOM 里是 `&`，
+  // 直接比字符串会把同一个播放器当成两个（正文里就会出现两个一样的播放器）
+  const orderedKeys = new Set<string>();
+  /** 登记一个嵌入，返回对应的 sentinel 节点 */
+  const sentinelFor = (embed: VideoEmbed): HTMLElement => {
+    const el = doc.createElement("div");
+    el.setAttribute("data-rss-embed", String(ordered.length));
+    ordered.push(embed);
+    orderedKeys.add(canonicalEmbedKey(embed.src));
+    return el;
+  };
+
+  // 规则 1：认得的视频平台 iframe 就地换成 sentinel（换成带 16:9 占位的自家播放器）；
+  // **认不出的保留原样** —— 音频播放器（Spotify / 小宇宙 / 网易云…）都在这类里，
+  // 删掉就等于把播放器丢了。它们由 normalizeArticleHtml 加 sandbox 后原样加载。
+  doc.body.querySelectorAll("iframe").forEach((frame) => {
+    const embed = identifyVideoEmbed(frame.getAttribute("src") ?? "");
+    if (!embed) return;
+    // 同一个播放器在正文里出现两次：只留第一处，第二处删掉（参数不同的会算作两个，不受影响）
+    if (orderedKeys.has(canonicalEmbedKey(embed.src))) {
+      frame.remove();
+      return;
+    }
+    frame.replaceWith(sentinelFor(embed));
+  });
+
+  // 规则 2 / 3：只在链接里出现的，插到链接所在块之后；找不到就追加末尾
+  for (const embed of embeds) {
+    if (orderedKeys.has(canonicalEmbedKey(embed.src))) continue;
+    const anchor = findEmbedAnchor(doc, embed);
+    const sentinel = sentinelFor(embed);
+    if (!anchor) {
+      doc.body.appendChild(sentinel);
+      continue;
+    }
+    // 整段就是那个链接时插在段落之后（更接近「视频在正文里的位置」）
+    const block = anchor.closest("p, li, blockquote, figure, td");
+    if (block && block !== doc.body) block.after(sentinel);
+    else anchor.after(sentinel);
+  }
+  return { html: doc.body.innerHTML, embeds: ordered };
 }
 
-/** 元信息行里的一项 */
+/** 找正文里承载这个嵌入的链接（用同一套识别逻辑比对，避免两处规则不一致） */
+function findEmbedAnchor(doc: Document, embed: VideoEmbed): Element | null {
+  for (const anchor of doc.querySelectorAll("a[href]")) {
+    const found = identifyVideoEmbed(anchor.getAttribute("href") ?? "");
+    if (found && found.src === embed.src) return anchor;
+  }
+  return null;
+}
+
+/**
+ * 元信息行里的一项 */
 function MetaChip({ icon, text }: { icon: string; text: string }): JSX.Element {
   return (
     <span className="article-meta-chip">
@@ -248,18 +328,13 @@ function buildRenderedHtml(
   }
   // 订阅源自身给的正文里也可能直接嵌了播放器（RSS 的 description 常带 iframe）
   const embeds = findVideoEmbeds(raw);
-  const body = kind === "html" ? stripIframes(raw) : renderContent(raw, article.content_type);
+  const body = renderContent(raw, article.content_type);
+  // iframe 就地换成 sentinel（认不出的删掉），只在链接里出现的插到链接之后
+  const placed = placeEmbedsInPlace(body, embeds);
   return {
-    html: normalizeArticleHtml(body + embedSentinelHtml(embeds), article.link),
-    embeds,
+    html: normalizeArticleHtml(placed.html, article.link),
+    embeds: placed.embeds,
   };
-}
-
-/** 去掉正文里的 iframe（嵌入已由 embeds 单独渲染，留在正文里只会是空白框） */
-function stripIframes(html: string): string {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.querySelectorAll("iframe").forEach((frame) => frame.remove());
-  return doc.body.innerHTML;
 }
 
 export function ArticleView({
@@ -282,12 +357,43 @@ export function ArticleView({
    */
   const [linkMenu, setLinkMenu] = useState<{ href: string; x: number; y: number } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  /**
+   * AI 翻译：把译文逐段插回原文后的 HTML（null = 当前还没翻译）+ 进度。
+   * 逐段对照，而不是把整篇译文堆在文末——读者不必来回对照。
+   */
+  const [interleavedHtml, setInterleavedHtml] = useState<string | null>(null);
+  const [translateProgress, setTranslateProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  /**
+   * 每次翻译运行的令牌。回调里拿它跟当前值比对：
+   * 不一致说明这次运行已经作废（用户点了停止 / 换了文章 / 正文被替换），
+   * 就**不许再写 state** —— 否则上一篇文章的译文会写进这一篇（真实踩过）。
+   */
+  const translateRunRef = useRef(0);
+  /**
+   * 翻译设置（在文章页面选）：按网关分组的模型 + 源/目标语言。
+   * 设置页只负责增删改网关，用哪个网关的哪个模型在这里定。
+   */
+  const [picker, setPicker] = useState<TranslatePickerState | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  /** 下拉的根容器（按钮 + 菜单）：点它之外的地方才收起 */
+  const pickerRootRef = useRef<HTMLDivElement | null>(null);
   const { ref: linkMenuRef, position: linkMenuPosition } = useMenuPosition<HTMLDivElement>(linkMenu);
 
   // 切换文章时重置状态（已抓取过全文的命中缓存，直接显示）
   useEffect(() => {
+    // 作废在途翻译：它的回调属于上一篇文章，绝不能再写这一篇的 state
+    translateRunRef.current += 1;
     setFullContentState(getFullContent(article.id));
     setHasAttemptedFull(Boolean(getFullContent(article.id)));
+    // 切换文章时重置翻译状态（译文属于上一篇文章，不跨篇残留）
+    setInterleavedHtml(null);
+    setTranslateProgress(null);
+    setTranslateError(null);
+    setTranslating(false);
   }, [article.id]);
 
   const contentKind = detectContentKind(article.content ?? "", article.content_type);
@@ -310,9 +416,6 @@ export function ArticleView({
   const renderedTextLength: number = plainTextLength(renderedHtml);
   const minutes = readingMinutes(renderedTextLength);
 
-  // 正文里出现过的图片原始地址 → 附件区判重（避免同一张图出现两次）
-  const inlineImages = useMemo(() => collectInlineImageSrcs(renderedHtml), [renderedHtml]);
-
   // 首图：正文没有大图时用媒体缩略图补一张（提升进入阅读视图的第一印象）
   const inlineHasImage = useMemo(
     () => /<img\b/i.test(renderedHtml),
@@ -327,43 +430,42 @@ export function ArticleView({
     return resolved;
   }, [article.thumbnail, article.link, inlineHasImage]);
 
-  // 视频海报图：用订阅源缩略图（走本地代理；加载失败由全局 error 处理隐藏）
-  const posterUrl = useMemo(() => {
-    const raw = (article.thumbnail ?? "").trim();
-    if (!raw) return null;
-    const resolved = resolveImgSrc(raw, article.link);
-    if (!/^https?:\/\//i.test(resolved)) return null;
-    return toProxyImgSrc(resolved, article.link ?? undefined);
-  }, [article.thumbnail, article.link]);
-
   /**
-   * 附件：订阅源给的媒体 + 正文里抽出来的视频嵌入。
-   * 图片地址统一改写为本地代理协议；音视频 / 嵌入保持原地址（播放器直接加载或交给浏览器）。
+   * 订阅源给的原生音视频（播客音频 / 视频文件），且**正文里还没有**的。
+   *
+   * 只挑音频与视频：图片在正文里本来就会渲染（缺失的由首图兜底），
+   * 其它文件（PDF / 压缩包等）不再单独列出来 —— 附件区已移除。
+   * 正文里的嵌入不在这里：它们已经由 placeEmbedsInPlace 放回原位了。
+   *
+   * 必须去重：很多源既在正文里放播放器、又把它作为 enclosure 给一份，
+   * 不看正文就补一个播放器 → 同一段音频出现两个播放器。
    */
-  const media = useMemo<MediaItem[]>(() => {
-    const fromFeed = (article.media ?? []).map((item) => {
-      const resolved = resolveImgSrc(item.url, article.link);
-      if (!/^https?:\/\//i.test(resolved) || isProxied(resolved)) return item;
-      return {
-        ...item,
-        url:
-          classifyMedia(item.content_type, item.url) === "image"
-            ? toProxyImgSrc(resolved, article.link ?? undefined)
-            : resolved,
-      };
+  const inlineMedia = useMemo<MediaItem[]>(() => {
+    // 正文里已经能播的地址（audio / video / source 的 src）
+    const playable = new Set<string>();
+    // 正文里已经放了播放器的嵌入（按播放器地址与观看页地址比对）
+    const embedded = new Set<string>();
+    for (const embed of embeds) {
+      embedded.add(embed.src);
+      embedded.add(embed.watchUrl);
+    }
+    const doc = new DOMParser().parseFromString(renderedHtml, "text/html");
+    doc.querySelectorAll("audio[src], video[src], source[src]").forEach((el) => {
+      const src = el.getAttribute("src") ?? "";
+      if (!src) return;
+      // 原文里可能是相对地址：原样与解析成绝对地址两种写法都记上，避免比对漏掉
+      playable.add(src);
+      const resolved = resolveImgSrc(src, article.link);
+      if (resolved) playable.add(resolved);
     });
-    // 正文里的嵌入排在前面：它才是这篇文章的主要内容
-    const embedded: MediaItem[] = embeds.map((embed) => ({
-      url: embed.watchUrl,
-      content_type: "video/embed",
-      title: embed.title ?? `${embed.platform ?? "视频"} 嵌入播放器`,
-      thumbnail: embed.thumbnail ?? null,
-      duration_secs: embed.durationSecs ?? null,
-      embed_src: embed.embeddable ? embed.src : null,
-      embed_platform: embed.platform,
-    }));
-    return [...embedded, ...fromFeed];
-  }, [article.media, article.link, embeds]);
+
+    return (article.media ?? []).filter((item) => {
+      const kind = classifyMedia(item.content_type, item.url);
+      if (kind !== "audio" && kind !== "video") return false;
+      const resolved = resolveImgSrc(item.url, article.link) || item.url;
+      return !playable.has(item.url) && !playable.has(resolved) && !embedded.has(item.url);
+    });
+  }, [article.media, renderedHtml, embeds, article.link]);
 
   const openUrl = (url: string): void => {
     if (onOpenExternal) onOpenExternal(url);
@@ -404,7 +506,7 @@ export function ArticleView({
       wrap.appendChild(frame);
       sentinel.replaceWith(wrap);
     });
-  }, [renderedHtml, embeds]);
+  }, [renderedHtml, interleavedHtml, embeds]);
 
   // 图片经 rssimg 协议加载失败时回退直连原始 https 地址。
   // img 的 error 事件不冒泡，需在捕获阶段监听。
@@ -450,8 +552,11 @@ export function ArticleView({
     try {
       const html = await rssService.fetchArticleHtml(article.link, proxyArg);
       const extracted = extractArticleContent(html);
-      // 正文文字够多，或页面内容本来就是视频嵌入（博客正文只有一条播放器的情形）
-      const hasEmbeddedMedia = extracted.embeds.length > 0 && embeds.length === 0;
+      // 正文文字够多，**或**正文本身就是媒体（博客正文只有一条播放器的情形）。
+      // 判据必须用 hasMedia 而不是 embeds：embeds 只含认得出平台的**视频**，
+      // 而音频播放器（网易云外链等）是认不出平台的 iframe ——
+      // 只看 embeds 会把「整篇只有一个音频播放器」的帖子判成没抓到而静默丢弃。
+      const hasEmbeddedMedia = extracted.hasMedia && embeds.length === 0;
       if (
         hasEmbeddedMedia ||
         (extracted.textLength >= MIN_USABLE_TEXT && extracted.textLength > summaryText)
@@ -467,6 +572,162 @@ export function ArticleView({
       // 网络或解析出错同样静默
     } finally {
       setLoadingFull(false);
+    }
+  };
+
+  /**
+   * 翻译设置：进页面时读一次（按网关分组的模型 + 语言）。
+   * 改动立即落盘，下次翻译就用新的选择。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const load = (): void => {
+      void loadTranslatePicker()
+        .then((state) => {
+          if (!cancelled) setPicker(state);
+        })
+        .catch(() => {
+          // 未配置 / 还没存过配置：不显示翻译选择区即可
+        });
+    };
+    load();
+    // 在设置里新加了网关 / 模型之后，回到文章页要能立刻用上，而不是等下次重新打开文章
+    const unsubscribe = onTranslateConfigChange(load);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  // 下拉打开时：点外面或按 Esc 收起。
+  // 这里必须用 mousedown + 「目标是否在容器内」判断（与标题栏的下拉同一套写法）：
+  // 挂在 click 上会踩到「打开菜单的那次点击还在往 document 冒泡，而同一次点击又把它关掉」
+  // —— 表现就是菜单一闪都不闪，等于打不开。
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onMouseDown = (e: MouseEvent): void => {
+      if (pickerRootRef.current && !pickerRootRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pickerOpen]);
+
+  /** 选定「哪个网关的哪个条目」：本地先更新（界面立刻反馈），再落盘 */
+  const handleSelectTarget = async (
+    providerId: string,
+    modelId: string,
+    label: string,
+  ): Promise<void> => {
+    setPicker((p) =>
+      p ? { ...p, activeProviderId: providerId, currentModel: modelId, currentLabel: label } : p,
+    );
+    setPickerOpen(false);
+    try {
+      await selectTranslationTarget(providerId, modelId);
+    } catch {
+      // 落盘失败不回滚：本次会话仍按新选择翻译
+    }
+  };
+
+  const handleLangChange = async (source: string, target: string): Promise<void> => {
+    setPicker((p) => (p ? { ...p, sourceLang: source, targetLang: target } : p));
+    try {
+      await setTranslateLanguages(source, target);
+    } catch {
+      // 同上
+    }
+  };
+
+  /**
+   * 正文 HTML 变了（例如刚点完「获取全文」）就作废已有译文：
+   * 交错译文是按当时的 HTML 拼出来的，不复位的话会显示上一版正文的对照。
+   * 同样要作废在途翻译（它在拼旧 HTML）。
+   */
+  useEffect(() => {
+    translateRunRef.current += 1;
+    setInterleavedHtml(null);
+    setTranslateProgress(null);
+    setTranslating(false);
+  }, [renderedHtml]);
+
+  /** 停止翻译：作废本次运行（后续批次不再发出），已翻好的部分保留 */
+  const cancelTranslate = (): void => {
+    translateRunRef.current += 1;
+    setTranslating(false);
+    setTranslateProgress(null);
+  };
+
+  const handleTranslate = async (): Promise<void> => {
+    const run = translateRunRef.current + 1;
+    translateRunRef.current = run;
+    const isStale = (): boolean => translateRunRef.current !== run;
+    setTranslating(true);
+    setTranslateError(null);
+    setTranslateProgress(null);
+    try {
+      const config = await loadTranslateConfig();
+      if (isStale()) return;
+      if (!isTranslateConfigured(config)) {
+        setTranslateError(
+          "翻译还没配好：到「设置 → 翻译」填好服务商的地址与模型（机器翻译服务商填 API 密钥即可）",
+        );
+        return;
+      }
+      // 翻「当前实际展示的正文」：点过「获取全文」就是抓到的全文（renderedHtml 已包含它）
+      const blocks = extractTranslatableBlocks(renderedHtml);
+      if (blocks.length === 0) {
+        setTranslateError("这篇文章没有可翻译的正文");
+        return;
+      }
+      // 从前往后依次翻，每翻完一段就把这一段插进正文显示出来（不等整篇翻完）
+      const partial: (string | null)[] = new Array(blocks.length).fill(null);
+      const failedIndexes = new Set<number>();
+      const result = await translateBlocks(
+        blocks,
+        config,
+        (index, text, done, total) => {
+          if (isStale()) return; // 已停止 / 已换文章：不许动 state
+          partial[index] = text;
+          // 失败的段落标记出来：界面会在原位显示「本段未能翻译」，而不是凭空少一行
+          if (!text) failedIndexes.add(index);
+          setInterleavedHtml(interleaveTranslations(renderedHtml, partial, failedIndexes));
+          setTranslateProgress({ done, total });
+        },
+        article.title ?? undefined,
+        isStale,
+        // 流式中间结果：某段才翻了一半也先贴上去，边生成边看，不用等整批回来。
+        // 用同一份 partial 数组覆盖写，完成时会被 onBlock 的最终译文替换掉。
+        (index, text) => {
+          if (isStale()) return;
+          if (partial[index] === text) return; // 内容没变就别重排 DOM
+          partial[index] = text;
+          setInterleavedHtml(interleaveTranslations(renderedHtml, partial, failedIndexes));
+        },
+      );
+      if (isStale()) return;
+      const okCount = result.translations.filter((t) => (t ?? "").trim()).length;
+      if (okCount === 0) {
+        throw result.firstError ?? new Error("翻译服务未返回任何译文");
+      }
+      if (result.failed > 0) {
+        setTranslateError(`有 ${result.failed} 段未能翻译（其余已按段显示）`);
+      }
+    } catch (err) {
+      if (!isStale()) setTranslateError(`翻译失败：${String(err)}`);
+    } finally {
+      if (!isStale()) {
+        setTranslating(false);
+        setTranslateProgress(null);
+      }
     }
   };
 
@@ -566,8 +827,9 @@ export function ArticleView({
             />
           )}
           {minutes > 0 && <MetaChip icon="menu_book" text={`约 ${minutes} 分钟`} />}
-          {media.length > 0 && (
-            <MetaChip icon="attachment" text={`${media.length} 个附件`} />
+          {/* 有原生音视频时才提示（附件区已移除，这里只报「这篇带音频/视频」） */}
+          {inlineMedia.length > 0 && (
+            <MetaChip icon="attachment" text={`${inlineMedia.length} 个音视频`} />
           )}
         </div>
       </header>
@@ -620,6 +882,115 @@ export function ArticleView({
           <span className="material-symbols-rounded">share</span>
           分享
         </button>
+        {/* 翻译设置：按网关分组的模型选择（点开是「网关 → 模型」列表，当前项打勾）+ 源/目标语言 */}
+        {picker && picker.groups.length > 0 && (
+          <>
+            <label className="article-view-lang" title="源语言（自动检测 = 由模型判断）">
+              <span className="article-view-lang-cap">源</span>
+              <select
+                value={picker.sourceLang}
+                onChange={(e) => void handleLangChange(e.target.value, picker.targetLang)}
+              >
+                {SOURCE_LANGUAGE_OPTIONS.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {lang}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="article-view-lang" title="目标语言">
+              <span className="article-view-lang-cap">译</span>
+              <select
+                value={picker.targetLang}
+                onChange={(e) => void handleLangChange(picker.sourceLang, e.target.value)}
+              >
+                {LANGUAGE_OPTIONS.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {lang}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="toolbar-dropdown translate-picker" ref={pickerRootRef}>
+              <button
+                type="button"
+                className="translate-picker-btn"
+                onClick={() => setPickerOpen((o) => !o)}
+                title="选择翻译使用的服务商与模型"
+              >
+                <span className="translate-picker-current">
+                  {picker.currentLabel || "选择模型"}
+                </span>
+                <span className="material-symbols-rounded">expand_more</span>
+              </button>
+              {pickerOpen && (
+                <div className="dropdown-menu translate-picker-menu">
+                  {picker.groups.map((group) => (
+                    <div className="translate-picker-group" key={group.providerId}>
+                      {/* 机器翻译服务没有模型可选，整组就是一条：不再显示「服务名 + 无需模型」
+                          两行（同一件事说两遍），服务名直接落在可点的那一条上 */}
+                      {!group.machine && (
+                        <div className="translate-picker-group-label">{group.displayName}</div>
+                      )}
+                      {group.items.map((item) => {
+                        const selected =
+                          group.providerId === picker.activeProviderId &&
+                          item.value === picker.currentModel;
+                        return (
+                          <button
+                            key={`${group.providerId}:${item.value}`}
+                            type="button"
+                            className={`dropdown-item translate-picker-item ${selected ? "selected" : ""}`}
+                            onClick={() =>
+                              void handleSelectTarget(group.providerId, item.value, item.label)
+                            }
+                          >
+                            <span className="translate-picker-item-name">{item.label}</span>
+                            {selected && (
+                              <span className="material-symbols-rounded">check</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {/* 配了网关但目录里没有模型：说明缺什么，别让选择器凭空消失 */}
+        {picker && picker.groups.length === 0 && picker.needsSetup && (
+          <span className="article-view-hint">
+            翻译未就绪：到「设置 → 翻译」添加模型
+          </span>
+        )}
+        {/* AI 翻译：有正文时可用；翻译进行中时同一个按钮变成「停止」 */}
+        {contentKind !== "empty" && contentKind !== "image" && contentKind !== "external" && (
+          <button
+            onClick={() => (translating ? cancelTranslate() : void handleTranslate())}
+            title={
+              translating
+                ? "停止翻译（已经翻好的部分会保留）"
+                : interleavedHtml
+                  ? "按当前服务商与语言重新翻译一遍"
+                  : "用 AI 翻译这篇正文（译文逐段跟在原文后面）"
+            }
+          >
+            <span className="material-symbols-rounded">
+              {translating ? "close" : interleavedHtml ? "refresh" : "public"}
+            </span>
+            {translating ? "停止" : interleavedHtml ? "重新翻译" : "翻译"}
+          </button>
+        )}
+        {/* 翻译进度：挨着翻译按钮放（原在文末的一行挪到这里） */}
+        {translating && (
+          <span className="translate-progress">
+            <span className="material-symbols-rounded">progress_activity</span>
+            正在翻译
+            {translateProgress ? ` ${translateProgress.done}/${translateProgress.total}` : ""}
+          </span>
+        )}
       </div>
 
       {/* 标签 */}
@@ -645,13 +1016,13 @@ export function ArticleView({
         </figure>
       )}
 
-      {/* 正文内容（data-link-base 供全局链接守卫解析相对链接） */}
+      {/* 正文内容（译文按段插在原文之后；data-link-base 供全局链接守卫解析相对链接） */}
       <div
         ref={contentRef}
         className={`article-view-content kind-${contentKind}`}
         data-link-base={article.link ?? undefined}
         style={{ fontSize: `${fontSize}px` }}
-        dangerouslySetInnerHTML={{ __html: renderedHtml }}
+        dangerouslySetInnerHTML={{ __html: interleavedHtml ?? renderedHtml }}
       />
 
       {/* 订阅源没给正文时的状态说明（自动抓取中 / 原文页没抓到 / 无从抓取） */}
@@ -669,14 +1040,40 @@ export function ArticleView({
             <p className="article-empty-hint">（原文页也没能提取到正文，可点上方「打开原文」查看）</p>
           )
         ))}
-      {/* 附件区：图片 / 音频 / 视频 / 文档分种类展示（音视频可直接内嵌播放） */}
-      <ArticleMedia
-        media={media}
-        inlineImages={inlineImages}
-        thumbnail={article.thumbnail}
-        posterUrl={posterUrl}
-        onOpen={openUrl}
-      />
+      {/* AI 译文：已按段插进上面的正文里（interleavedHtml）；进度与失败都报在工具栏，
+          文末不再重复提示「正在翻译」 */}
+      {translateError && (
+        <p className="article-empty-hint translation-error">
+          <span className="material-symbols-rounded">error</span>
+          {translateError}
+        </p>
+      )}
+
+      {/* 订阅源给的原生音视频（播客音频 / 视频文件）：它们在正文里没有位置可放，
+          就接在正文之后就地播放。不再单独开一块「附件」区域 —— 图片本来就在正文里、
+          正文里的播放器也已经按原位插好了，附件区只会把同一份媒体再列一遍。 */}
+      {inlineMedia.length > 0 && (
+        <div className="article-inline-media">
+          {inlineMedia.map((item) =>
+            videoWatchPageHost(item.url) ? (
+              // 平台观看页地址不能当媒体源播放，给个入口
+              <button
+                key={item.url}
+                className="f2-btn-soft article-inline-media-open"
+                onClick={() => openUrl(item.url)}
+                title={item.url}
+              >
+                <span className="material-symbols-rounded">open_in_new</span>
+                在浏览器中观看
+              </button>
+            ) : classifyMedia(item.content_type, item.url) === "audio" ? (
+              <audio key={item.url} className="article-inline-audio" src={item.url} controls preload="none" />
+            ) : (
+              <video key={item.url} className="article-inline-video" src={item.url} controls preload="metadata" />
+            ),
+          )}
+        </div>
+      )}
 
       {/* 正文另存有摘要时提示：正文可能只是摘要 */}
       {article.summary &&
@@ -723,6 +1120,8 @@ export function ArticleView({
           </button>
         </div>
       )}
+    {/* 划词翻译：选中正文文本后出现悬浮按钮，点开浮窗对照显示原文与译文 */}
+      <SelectionTranslate containerRef={contentRef} context={article.title ?? undefined} />
     </article>
   );
 }

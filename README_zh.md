@@ -25,7 +25,7 @@ RSS Reader 面向「订阅数量多、希望本地留存、不依赖云端服务
 文章图片时发生，其余数据全部留在本机。界面采用 Fluent 2 视觉语言与无边框自定义标题栏，支持浅色 /
 深色 / 跟随系统主题。
 
-**项目状态**：`0.5.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
+**项目状态**：`0.6.0`，早期开发阶段，功能与持久化结构（`state.json` 的 `schema_version`）仍可能变动。
 Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader/releases) 或
 [Forgejo Releases](https://git.z1hwang.cn/Zeehow/RSS-Reader/releases)，macOS / Linux 需按下文从源码构建；
 计划中的功能见 [TODO.md](TODO.md)。
@@ -45,6 +45,9 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 刷新一律**全量抓取**：单源「刷新」与标题栏「刷新所有订阅源」走同一条路径，每次都重新下载并
   解析整份订阅源（不带 `ETag` / `Last-Modified` 条件请求），结果不受本地数据状态影响
 - 一键刷新全部订阅源，抓取并发上限 6；自动抓取间隔可选 10 / 15 / 20 / 30 / 45 分钟或 1 小时
+- 批量清理：设置 →「全部订阅源」可按条件批量选中 **刷新失败** 或 **长期未更新**
+  （最新文章发布时间早于 30 / 60 / 90 / 180 / 365 天，默认 365）的订阅源，随后经「删除选中」确认；
+  订阅源的刷新状态（最后成功时间 / 最近错误 / 连续失败次数）随订阅源持久化，失败源在列表中标出
 - 深链订阅：注册 `feed://` 与 `rssreader://` 协议，浏览器里点链接（如 RSSHub Radar 的「本地阅读器」）
   即打开应用并预填订阅地址；已订阅的源直接定位过去
 
@@ -55,9 +58,7 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 正文按内容种类渲染：HTML / XHTML 原样排版，纯文本按空行分段（不再是挤成一坨），
   Markdown 源渲染标题 / 列表 / 引用 / 代码块 / 表格，`data:` URI 内联图片直接显示，
   Atom 的 `content src` 外链正文给出打开入口
-- 附件按种类展示：图片（网格缩略图 + 点击放大）、音频与视频（**内嵌原生播放器**，可直接播放 / 拖动进度）、
-  文档（图标 + 类型 / 体积 / 时长 + 打开入口）
-- 正文顶部展示作者 / 时间 / 预计阅读时长 / 附件数，标签以胶囊样式列出；正文无图时用订阅源缩略图作首图
+- 正文顶部展示作者 / 时间 / 预计阅读时长 / 音视频数，标签以胶囊样式列出；正文无图时用订阅源缩略图作首图
 - 全文搜索：标题 + 正文 + 摘要 + 作者 + 标签（正文按纯文本索引，单篇截取 4096 字符控制内存）
 - 一键抓取原文全文：入口常驻在阅读视图工具栏，任何文章都能手动抓一次；抓取过程与结果都不发通知
   （不弹提示、不进消息中心），唯一反馈是按钮状态与正文本身，也不做任何「提示你该抓全文」的区块。
@@ -68,7 +69,16 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 在系统默认浏览器打开原文；分享面板提供复制链接 / 复制为 Markdown / 复制标题与摘要、
   通过邮件发送、分享到 X 与微博、保存为 Markdown 文件
 
-### 图片与网络
+### 翻译
+
+- 多提供商（Provider）网关：大模型接口支持 Chat Completions / Responses / Anthropic Messages，
+  机器翻译接口内置微软 / 谷歌 / DeepL / 腾讯翻译；配置持久化于 `translate-config.json`
+- 全文翻译：按块（段落 / 标题 / 列表项 / 引用 / 图注）做段落级双语对照，译文插入对应原文之后
+- 流式输出：基于 SSE 增量渲染译文，工具栏显示翻译进度
+- 划词翻译：选中正文文本后弹出浮层，同时呈现原文与译文
+- 提供商级别可禁用思维链；译文按「文本 + 语言」本地缓存
+
+### 媒体（图片与音频 / 视频）
 
 - 文章图片统一经本地 `rssimg://` 协议加载，由 Rust 侧带浏览器 User-Agent 抓取，
   绕开防盗链 Referer 校验与 http 图片的混合内容拦截，成功响应缓存 7 天
@@ -77,24 +87,20 @@ Windows x64 安装包见 [GitHub Releases](https://github.com/z1HwanG/RSS-Reader
 - 单张图片体积上限 50 MB，仅放行 `http` / `https` 图片
 - 带 `width` / `height` 声明的图片（会按宽高比预留高度）在加载完成前显示浅底占位，
   避免那块预留空间看起来像正文里的空白；彻底加载失败的图片会被隐藏、连带收掉预留高度
+- 正文中的媒体**就位（inline）渲染**：已识别平台的视频嵌入（Bilibili / YouTube / Vimeo /
+  腾讯视频 / 优酷）在原地替换为 16:9 播放器；订阅源提供的原生音频 / 视频紧随正文之后内联播放
+  （`preload="metadata"`）。不再单列「附件」区域
+- 平台观看页地址（YouTube / Vimeo）不能作为媒体源，改给浏览器入口
+- **未识别平台的 iframe 予以保留**并施加 `sandbox`：音频播放器基本都属于此类；
+  `data-src` 回填到 `src`，协议相对地址 `//host/...` 升级为 `https`
+- CSP 放行 `media-src` 与 `frame-src`（`https:` + `http:` + `rssimg:` 等），跨站播放器才能加载
+- 订阅源未提供正文时自动抓取原文：正文中存在任何媒体元素即判定成功
+- 媒体不经过本地代理（该协议不支持 Range 请求），需经代理访问的媒体站点只能「在浏览器中打开」
+
+### 网络
+
 - HTTP / SOCKS5 代理配置，含主机与端口格式校验、一键连通性测试（多探测目标，避免单站误报）
 - SOCKS5 使用 `socks5h`，域名交由代理解析，规避本地 DNS 污染
-
-### 音视频播放
-
-- 附件里的音频 / 视频用原生播放器内嵌在阅读视图（`preload="metadata"`：不点播放只取元数据，不预下载文件），
-  视频用订阅源缩略图作封面；播放器旁边保留「浏览器打开」入口
-- CSP 里显式放行 `media-src`（`'self'` + `rssimg:` + `data:` + `blob:` + `https:` + `http:`）——
-  没有这条指令时 `default-src 'self'` 会拦掉跨站媒体，表现为播放器永不加载、无任何提示
-- 两种源播不了，会给出说明与浏览器入口而不是静默失败：YouTube / Vimeo 的条目只提供观看页地址
-  （Atom 源里拿不到直链），以及站点禁止内嵌（防盗链 / 需要登录）
-- **正文里的视频嵌入**（博客常整篇就是一条 Bilibili / YouTube 播放器）：就地渲染成 16:9 播放器，
-  CSP 用 `frame-src` 白名单（Bilibili / YouTube / Vimeo / 腾讯视频 / 优酷）放行，
-  iframe 加 `sandbox` 限制权限；附件区同时给出卡片（标题 / 平台 / 浏览器打开）
-- 订阅源完全没给正文时自动抓一次原文：抓到视频嵌入也算成功，因此「只有视频的博客文章」
-  打开就能直接看，不再提示「没有正文」
-- 媒体不走本地代理（代理协议是给图片用的、不支持 Range 请求，几十 MB 的音频全量抓取会卡住），
-  因此需要代理才能访问的媒体站点只能走「浏览器打开」
 
 ### 外观与偏好
 
@@ -147,8 +153,10 @@ RSS-Reader/
 │   ├── assets/fonts/                # 子集化后的图标字体
 │   ├── features/rss/                # RSS 业务域
 │   │   ├── components/              # TitleBar / FeedList / ArticleList / ArticleView
-│   │   │                            # ArticleMedia / AddFeedModal / SettingsModal / ShareMenu
+│   │   │                            # SelectionTranslate / AddFeedModal / SettingsModal
+│   │   │                            # TranslateSettings / ShareMenu
 │   │   ├── services/rssService.ts   # Tauri IPC 封装 + 防抖落盘
+│   │   ├── services/translateService.ts  # 翻译配置读写、整篇 / 划词翻译、流式订阅、结果缓存
 │   │   ├── services/shareService.ts # 分享文本构造与动作（复制 / 邮件 / 社交 / 存 Markdown）
 │   │   ├── services/updateService.ts# 应用内更新封装（检查 / 下载 / 安装）
 │   │   └── types.ts                 # 共享 DTO 类型（与 Rust snake_case 对齐）
@@ -158,7 +166,12 @@ RSS-Reader/
 │       ├── linkGuard.ts             # 全局 <a> 点击守卫 → 系统浏览器（含相对地址解析）
 │       ├── contextMenuGuard.ts      # 屏蔽 WebView 默认右键菜单（输入框除外）
 │       ├── contentRender.ts         # 正文种类识别与渲染 + 裸链接自动链接化
-│       ├── articleExtract.ts        # 原文正文提取（块级评分）、视频嵌入与截断识别
+│       ├── articleExtract.ts        # 原文正文提取（块级评分）、嵌入识别与截断识别
+│       ├── articleTranslate.ts      # 逐段对照翻译：取块与译文插回（纯函数）
+│       ├── segmentSplit.ts          # 多段合并送翻的分隔标记切分（含流式尽力切分）
+│       ├── translationCache.ts      # 翻译结果本地缓存（纯核心 + 存储后端注入）
+│       ├── selectionChipPosition.ts # 划词按钮 / 浮窗定位（纯函数）
+│       ├── feedHygiene.ts           # 订阅源清理判定：更新失败 / 长期未更新（纯函数）
 │       ├── articleFilter.ts         # 列表筛选（订阅源 / 未读 / 收藏 / 搜索）
 │       ├── articleDedupe.ts         # 跨次抓取去重与字段合并
 │       ├── feedOrder.ts             # 订阅源与分组的排序规则（含分组重排）
@@ -232,9 +245,9 @@ sudo pacman -Syu --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 | 文件 | 说明 |
 |------|------|
-| `RSSReader_0.5.0_x64-setup.exe` | NSIS 安装程序（推荐） |
-| `RSSReader_0.5.0_x64_en-US.msi` | MSI 安装包 |
-| `RSSReader_0.5.0_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
+| `RSSReader_0.6.0_x64-setup.exe` | NSIS 安装程序（推荐） |
+| `RSSReader_0.6.0_x64_en-US.msi` | MSI 安装包 |
+| `RSSReader_0.6.0_x64_portable.exe` | 免安装单文件，系统需已有 WebView2 |
 
 需要 Windows 10/11 x64 与 WebView2 Runtime（Windows 11 已内置）；macOS / Linux 暂无预编译包。
 
@@ -403,9 +416,10 @@ v4 起 `Feed` 不再保存 `etag` / `last_modified` / `peak_article_count`，旧
   正文位置才会写明「原文页也没能提取到正文，可点上方打开原文」。
 - **Markdown 渲染**：为「正文本身以 Markdown 发布」的源提供的兜底渲染，覆盖标题 / 列表 / 引用 /
   代码块 / 表格 / 行内标记，不追求 CommonMark 完整实现（嵌套列表按一层渲染，HTML 块不解析）。
-- **音视频附件**：不内嵌播放器，播放交给系统浏览器打开（CSP 的 `default-src 'self'` 会拦下跨站媒体，
-  内嵌只会得到一个静默失败的播放器控件）。
-- **正文渲染**：为保留排版只做节点清理，不做完整的 HTML 白名单净化，仅适用于可信订阅源。
+- **音视频**：内嵌播放器；平台仅暴露观看页地址（YouTube / Vimeo 条目）或站点禁止内嵌时，
+  给出浏览器入口而非静默失败的播放器。跨域 iframe 的音量无法由本应用调节。
+- **正文渲染**：为保留排版仅做节点清理，未实现完整的 HTML 白名单净化，仅适用于可信订阅源。
+  iframe 不再无条件移除（音频播放器依赖它），改为保留并施加 `sandbox` 限制。
 - **平台构建**：`bundle.targets = all` 只打包当前平台的目标格式，跨平台安装包需在各自系统上构建。
 - **同步能力**：无云端同步，多设备之间需通过备份 / 还原或 OPML 手动迁移。
 

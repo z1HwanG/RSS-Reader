@@ -27,5 +27,10 @@ desktop.ini
 .vscode/
 *.code-workspace
 
-# 本地验证脚本（不进仓库）
+# 编辑器的临时写入（先写临时文件再改名；异常退出时可能残留）
+*.tmp
+*.tmpdir/
+
+# 本地验证脚本与工具产物（不进仓库）
 .verify/
+.dsh-vision-router/

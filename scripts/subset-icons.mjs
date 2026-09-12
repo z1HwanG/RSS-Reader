@@ -18,6 +18,7 @@
  * 最后用 HarfBuzz 实际整形逐个校验，确保每个图标都能被合成为单个字形。
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync, copyFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +67,8 @@ const OUT = "src/assets/fonts/material-symbols-rounded.woff2";
  * 两边各存一份手写清单迟早会不同步 —— 校验就会对着过期清单报「没缺」。
  */
 const ICON_LIST_OUT = "src/assets/fonts/material-symbols-rounded.icons.json";
+/** @font-face 所在的样式表：字体 URL 上的版本号由 stampFontUrl 自动维护 */
+const STYLES_CSS = "src/styles.css";
 
 /** 反查图标名 → 真实连字目标字形名 */
 const MAP_PY = `
@@ -131,6 +134,26 @@ function run(cmd, args, env) {
   return execFileSync(cmd, args, { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", env: { ...process.env, ...env } });
 }
 
+/**
+ * 把字体文件指纹写到 @font-face 的 URL 上（?v=xxxxxxxx）。
+ *
+ * 为什么必须做：字体内容变了而 URL 没变时，浏览器会继续用缓存里那份旧字体，
+ * 新加的图标就渲染成原始文字（PUSH_PIN / CABLE 这种），看着像子集漏了字形
+ * —— 其实只是没重新拉取。带上指纹后 URL 随内容变化，样式表一更新就取到新字体。
+ */
+function stampFontUrl(woff2Path) {
+  const version = createHash("sha256").update(readFileSync(woff2Path)).digest("hex").slice(0, 8);
+  const css = readFileSync(STYLES_CSS, "utf8");
+  const pattern =
+    /(url\("\.\/assets\/fonts\/material-symbols-rounded\.woff2)(\?v=[0-9a-f]+)?("\))/;
+  if (!pattern.test(css)) {
+    throw new Error(`未在 ${STYLES_CSS} 找到字体引用，无法写入版本号`);
+  }
+  const next = css.replace(pattern, `$1?v=${version}$3`);
+  if (next !== css) writeFileSync(STYLES_CSS, next, "utf8");
+  console.log(`${next === css ? "字体版本号未变" : "已更新字体版本号"}：?v=${version}`);
+}
+
 async function main() {
   const css = await fetch(FONT_CSS_URL, { headers: { "User-Agent": CHROME_UA } }).then((r) => r.text());
   const match = [...css.matchAll(/url\((https:\/\/[^)]+\.woff2)\)/g)].pop();
@@ -182,6 +205,7 @@ async function main() {
 
   copyFileSync(subset, OUT);
   console.log("已写入", OUT);
+  stampFontUrl(OUT);
   writeFileSync(ICON_LIST_OUT, `${JSON.stringify({ icons: ICONS }, null, 2)}\n`, "utf8");
   console.log("已写入", ICON_LIST_OUT);
 }

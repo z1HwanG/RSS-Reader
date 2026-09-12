@@ -746,8 +746,21 @@ function App(): JSX.Element {
       }
     }
 
-    if (successes.length > 0) {
-      // 一次性合并所有新文章 + 回写订阅源标题
+    // 刷新状态回写：成功 → 记时间并清零；失败 → 记原因并累加连续失败次数。
+    // 成功与失败都要写（「一键清理坏源」依赖它），所以这段不能只在成功分支里做。
+    const nowIso = new Date().toISOString();
+    const statusPatches = new Map<string, Partial<Feed>>();
+    for (const r of settled) {
+      statusPatches.set(
+        r.feed.id,
+        r.ok
+          ? { last_success_at: nowIso, last_error: null, fail_count: 0 }
+          : { last_error: r.err, fail_count: (r.feed.fail_count ?? 0) + 1 },
+      );
+    }
+
+    if (settled.length > 0) {
+      // 一次性合并所有新文章 + 回写订阅源标题与刷新状态
       setState((prev) => {
         const feedPatches = new Map<string, Partial<Feed>>();
         const fetched: typeof prev.articles = [];
@@ -756,6 +769,10 @@ function App(): JSX.Element {
           if (result.feed_title) patch.title = result.feed_title;
           feedPatches.set(result.feed_id, patch);
           fetched.push(...result.articles);
+        }
+        // 状态补丁覆盖全部目标（含失败的那些），并保留上面已写好的标题
+        for (const [id, patch] of statusPatches) {
+          feedPatches.set(id, { ...feedPatches.get(id), ...patch });
         }
         const patchedFeeds = prev.feeds.map((f) => {
           const patch = feedPatches.get(f.id);
@@ -1184,6 +1201,7 @@ function App(): JSX.Element {
         <SettingsModal
           onClose={() => setShowSettings(false)}
           feeds={state.feeds}
+          articles={state.articles}
           groups={state.groups}
           fontSize={prefs.fontSize}
           onFontSizeChange={handleFontSizeChange}

@@ -26,9 +26,18 @@ export interface ExtractedContent {  /** 正文 HTML */
   /**
    * 正文里发现的视频嵌入（Bilibili / YouTube / Vimeo / 腾讯视频 / 优酷等）。
    * 有些博客的文章正文整个就是一条嵌入播放器、没有任何文字，
-   * 这时「正文字数」会接近 0，但页面其实有内容——这些条目要交给附件区展示。
+   * 这时「正文字数」会接近 0，但页面其实有内容。
    */
   embeds: VideoEmbed[];
+  /**
+   * 正文里是否存在**任何**媒体元素（iframe / audio / video / embed / object）。
+   *
+   * 与 `embeds` 的区别很重要：`embeds` 只含**认得出平台**的视频；
+   * 而音频播放器（网易云外链、Spotify、播客托管…）是认不出平台的 iframe，
+   * 不会进 `embeds`。只看 `embeds` 会把「整篇只有一个音频播放器」的帖子
+   * 当成「什么都没抓到」而丢弃（真实案例：博客的分享歌曲帖）。
+   */
+  hasMedia: boolean;
 }
 
 /** 正文里的视频嵌入（iframe 播放器） */
@@ -109,6 +118,25 @@ const VIDEO_PLATFORMS: {
     },
   },
 ];
+
+/**
+ * 嵌入地址的**规范化身份**：用来判断「两个地址是不是同一个播放器」。
+ *
+ * 为什么需要它：识别一个嵌入有两条路 —— 正则扫**原始 HTML 字符串**、以及读**解析后 DOM 的属性**。
+ * 同一条地址在两者里写法不同：原始 HTML 里 `&` 写作 `&amp;`，DOM 取出来是 `&`。
+ * 直接拿字符串比就会认为「不是同一个」，于是同一个播放器被登记两次、界面上出现两个。
+ * 这里统一：解 HTML 实体 → 补全协议相对地址 → 只留 host + path + query。
+ */
+export function canonicalEmbedKey(rawSrc: string): string {
+  const decoded = rawSrc.trim().replace(/&amp;/gi, "&");
+  const withScheme = decoded.startsWith("//") ? `https:${decoded}` : decoded;
+  try {
+    const url = new URL(withScheme);
+    return `${url.hostname.toLowerCase()}${url.pathname}${url.search}`;
+  } catch {
+    return withScheme;
+  }
+}
 
 /** 由播放器地址判断平台与观看页（识别不出时返回 null） */
 export function identifyVideoEmbed(rawSrc: string): VideoEmbed | null {
@@ -345,7 +373,19 @@ function collectCandidates(root: Element): Element[] {
   return candidates;
 }
 
-/** 计数容器内的视频嵌入（iframe 播放器），用于给「只有视频的正文」加权 */
+/**
+ * 计数容器内的**媒体元素**：iframe / audio / video / embed / object。
+ *
+ * 刻意**不限于**认得出平台的视频嵌入：音频播放器基本都是认不出平台的 iframe
+ * （`//music.163.com/outchain/player` 这种），只数视频会让「整篇只有一个音频播放器」
+ * 的正文被判成「没有内容」。真实案例：博客的分享歌曲帖，正文就是一条网易云外链播放器，
+ * 结果获取原文静默失败、播放器始终不出现。
+ */
+function mediaElementCount(el: Element): number {
+  return el.querySelectorAll("iframe, audio, video, embed, object").length;
+}
+
+/** 计数容器内的视频嵌入（iframe 播放器），用于给容器打分排序 */
 function embedCount(el: Element): number {
   let count = 0;
   el.querySelectorAll("iframe").forEach((frame) => {
@@ -356,27 +396,30 @@ function embedCount(el: Element): number {
 
 /**
  * 语义容器：挑「文字最多」的一个（站点声明优先，但仍要文字量达标）。
- * 例外：正文可能整篇只有一条视频嵌入、一个字都没有（博客内嵌播放器的常见写法），
+ * 例外：正文可能整篇只有一条嵌入播放器、一个字都没有（博客内嵌播放器的常见写法），
  * 这时按文字量会把真正的容器筛掉、退回整页 body，把站点外壳当正文。
- * 因此只要容器里有视频嵌入，就不再要求文字量。
+ * 因此只要容器里有**媒体元素**，就不再要求文字量。
+ *
+ * 判据用 mediaElementCount 而不是 embedCount：音频播放器是认不出平台的 iframe，
+ * 用视频嵌入作判据会把「只有音频播放器」的帖子筛掉。
  */
 function pickSemanticContainer(
   root: Element,
 ): { el: Element; selector: string; hasMediaOnly: boolean } | null {
-  const found: { el: Element; selector: string; length: number; embeds: number }[] = [];
+  const found: { el: Element; selector: string; length: number; embeds: number; media: number }[] = [];
   for (const selector of SEMANTIC_SELECTORS) {
     root.querySelectorAll(selector).forEach((el) => {
       const length = elementTextLength(el);
-      const embeds = embedCount(el);
-      if (length < SEMANTIC_MIN_TEXT && embeds === 0) return;
+      const media = mediaElementCount(el);
+      if (length < SEMANTIC_MIN_TEXT && media === 0) return;
       // 只有嵌入没有文字时，按「嵌入越多越像正文」排，并给少量文字权重
-      found.push({ el, selector, length, embeds });
+      found.push({ el, selector, length, embeds: embedCount(el), media });
     });
   }
   if (found.length === 0) return null;
   found.sort((a, b) => b.embeds - a.embeds || b.length - a.length);
   const best = found[0];
-  return { el: best.el, selector: best.selector, hasMediaOnly: best.embeds > 0 && best.length < SEMANTIC_MIN_TEXT };
+  return { el: best.el, selector: best.selector, hasMediaOnly: best.media > 0 && best.length < SEMANTIC_MIN_TEXT };
 }
 
 /** 清理候选块内部仍然存在的噪声（保留正文里的图片与引用） */
@@ -398,19 +441,32 @@ function cleanContainer(el: Element): void {
 
 /**
  * 处理正文里的 <iframe>：
- * 认得的视频平台播放器抽成嵌入条目（交给附件区展示），其余 iframe 一律移除——
- * 它们要么是广告 / 统计，要么是站点不允许内嵌的第三方页面，留在正文里只会是空白框。
- * 返回的 HTML 里不再包含任何 iframe。
+ * 认得平台的视频播放器抽成嵌入条目，并在**原位留一个标记**（`data-rss-embed=下标`），
+ * 由上层把标记换成真正的播放器。
+ *
+ * **认不出平台的 iframe 保持原样**：音频播放器几乎都是这类 iframe
+ * （Spotify / 小宇宙 / 网易云 / 播客托管），早先一律删掉等于直接丢内容。
+ * 它们由上层 normalizeArticleHtml 加 sandbox 后按原尺寸加载；
+ * 真正能加载哪些域由 CSP 的 frame-src 决定。
+ * 返回的 HTML 里不再包含**已识别的** iframe（但保留其位置）。
  */
 function extractEmbeds(container: Element): VideoEmbed[] {
   const embeds: VideoEmbed[] = [];
   const seen = new Set<string>();
   container.querySelectorAll("iframe").forEach((frame) => {
     const embed = identifyVideoEmbed(frame.getAttribute("src") ?? "");
-    frame.remove();
-    if (!embed || seen.has(embed.src)) return;
-    seen.add(embed.src);
+    // 认不出：保留原样，别动它
+    if (!embed) return;
+    // 同一个播放器出现多次：只留第一处标记（用规范化身份比对，见 canonicalEmbedKey）
+    const key = canonicalEmbedKey(embed.src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    // 原位留标记：早先这里只删不标记，位置靠上层「追加到正文末尾」补，
+    // 于是播放器总跑到文末；标记法才能让它留在正文里原本的位置
+    const marker = frame.ownerDocument.createElement("div");
+    marker.setAttribute("data-rss-embed", String(embeds.length));
     embeds.push(embed);
+    frame.replaceWith(marker);
   });
   return embeds;
 }
@@ -419,14 +475,20 @@ function extractEmbeds(container: Element): VideoEmbed[] {
  * 组装提取结果：读取 HTML 之前先把 iframe 处理掉。
  * 这里必须由 resultOf 统一负责——若某个分支忘了调 extractEmbeds，
  * iframe 会留在正文里（等 normalizeArticleHtml 再删掉），视频就白丢了。
+ *
+ * `hasMedia` 在 extractEmbeds **之后**统计是刻意的：认得出平台的视频 iframe 已被换成
+ * 占位 div（不再算媒体元素），但那些是「已识别的视频」；剩下仍留在正文里的 iframe
+ * 正是音频播放器这类认不出平台的嵌入。两者只要有一个，就算正文有媒体。
  */
 function resultOf(container: Element, source: string): ExtractedContent {
   const embeds = extractEmbeds(container);
+  const media = mediaElementCount(container);
   return {
     html: collapseWhitespace(container.innerHTML),
     source,
     textLength: elementTextLength(container),
     embeds,
+    hasMedia: embeds.length > 0 || media > 0,
   };
 }
 
@@ -471,7 +533,7 @@ export function collapseWhitespace(html: string): string {
  */
 export function extractArticleFromDocument(doc: Document): ExtractedContent {
   const body = doc.body;
-  if (!body) return { html: "", source: "无 body", textLength: 0, embeds: [] };
+  if (!body) return { html: "", source: "无 body", textLength: 0, embeds: [], hasMedia: false };
 
   // 先整体去噪，避免评分被导航 / 侧栏带偏
   stripNoise(body);

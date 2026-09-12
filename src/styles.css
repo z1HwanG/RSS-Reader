@@ -236,7 +236,10 @@ textarea:focus-visible {
   font-style: normal;
   font-weight: 400;
   font-display: block;
-  src: url("./assets/fonts/material-symbols-rounded.woff2") format("woff2");
+  /* 末尾的 ?v= 是字体文件指纹，由 scripts/subset-icons.mjs 在重新生成子集时自动改写。
+     少了它，重新生成后 URL 不变、浏览器继续用缓存里那份旧字体，新加的图标就会
+     显示成原始文字（PUSH_PIN 这种），非得手动刷新或重启才恢复。 */
+  src: url("./assets/fonts/material-symbols-rounded.woff2?v=989657e6") format("woff2");
 }
 
 .material-symbols-rounded {
@@ -1432,6 +1435,111 @@ textarea:focus-visible {
   box-shadow: inset 0 -1px 0 var(--f2-stroke-input);
 }
 
+/* 阅读视图工具栏里的翻译控件：源/目标语言选择 + 网关-模型分组下拉 */
+.article-view-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+  font-size: 13px;
+  color: var(--f2-text-1);
+}
+
+/* 「源」「译」两个提示字：说明这一栏是什么，比 tooltip 直接 */
+.article-view-lang-cap {
+  color: var(--f2-text-3);
+  font-size: 12px;
+}
+
+.article-view-lang select {
+  max-width: 120px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 翻译控件旁边的提示（如「配了网关但还没有模型」） */
+.article-view-hint {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  font-size: 12px;
+  color: var(--f2-text-3);
+}
+
+.translate-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  max-width: 240px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-strong);
+  font-size: 14px;
+  color: var(--f2-text-1);
+  cursor: pointer;
+}
+
+.translate-picker-btn:hover {
+  background: var(--f2-fill-control-hover);
+}
+
+.translate-picker-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 翻译进度：挨着翻译按钮的小指示（原在文末的一行挪到这里）。
+   转圈复用设置面板测模型那枚（观感一致），文案随进度更新。 */
+.translate-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--f2-text-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.translate-progress .material-symbols-rounded {
+  font-size: 16px;
+  color: var(--f2-accent-fg);
+  animation: model-test-spin 0.9s linear infinite;
+}
+
+.translate-picker-menu {
+  min-width: 240px;
+}
+
+.translate-picker-group + .translate-picker-group {
+  margin-top: 4px;
+}
+
+/* 分组标题：网关名（对应参考图里的「DeepSeek」「AMD」） */
+.translate-picker-group-label {
+  padding: 6px 12px 2px;
+  font-size: 12px;
+  color: var(--f2-text-3);
+}
+
+.translate-picker-item .material-symbols-rounded {
+  margin-left: auto;
+  font-size: 16px;
+  color: var(--f2-accent-fg);
+}
+
 .article-view-toolbar button .material-symbols-rounded {
   font-size: 16px;
   color: var(--f2-text-2);
@@ -1657,6 +1765,35 @@ textarea:focus-visible {
   color: var(--f2-accent-fg);
 }
 
+/* 逐段对照的译文行：跟在各段原文之后，绿色与正文区分；同组内贴紧、组与组之间靠原文段间距拉开 */
+.article-view-content .article-translation-line {
+  color: var(--f2-success-fg);
+  margin-top: -0.5em;
+}
+
+/* 列表项里的译文作为该项第二行 */
+.article-view-content li > .article-translation-line {
+  margin-top: 2px;
+}
+
+/* 某段没能翻译时的原位占位：灰色、斜体，一眼看出是哪段缺了（不是凭空少一行） */
+.article-view-content .article-translation-failed {
+  color: var(--f2-text-3);
+  font-style: italic;
+  margin-top: -0.5em;
+}
+
+/* 翻译失败的错误提示：用错误色区别于普通状态提示 */
+.translation-error {
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+  border-color: var(--f2-critical-fg);
+}
+
+.translation-error .material-symbols-rounded {
+  color: var(--f2-critical-fg);
+}
+
 /* 逐字排版的源（纯文本 / Markdown）：段落间距略收紧，避免整页发空 */
 .article-view-content.kind-text p,
 .article-view-content.kind-markdown p {
@@ -1698,135 +1835,6 @@ textarea:focus-visible {
 }
 
 /* 附件区：按内容种类（图片 / 音频 / 视频 / 文档）分区展示 */
-.article-media {
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--f2-stroke);
-}
-
-.article-media-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--f2-text-2);
-  margin-bottom: 12px;
-}
-
-.article-media-title .material-symbols-rounded {
-  font-size: 16px;
-}
-
-.article-media-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.article-media-image {
-  position: relative;
-  padding: 0;
-  border: 1px solid var(--f2-stroke);
-  border-radius: var(--f2-radius-md);
-  background: var(--f2-bg-layer);
-  overflow: hidden;
-  cursor: zoom-in;
-  transition: border-color var(--f2-dur-1) var(--f2-ease);
-}
-
-.article-media-image:hover {
-  border-color: var(--f2-stroke-strong);
-}
-
-.article-media-image img {
-  display: block;
-  width: 100%;
-  height: 140px;
-  object-fit: cover;
-}
-
-.article-media-image-meta {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 3px 8px;
-  font-size: 11px;
-  color: #fff;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.article-media-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--f2-stroke);
-  border-radius: var(--f2-radius-md);
-  background: var(--f2-bg-solid);
-}
-
-/* 音视频：卡片头 + 内嵌原生播放器 */
-.article-media-player {
-  margin-bottom: 10px;
-  border: 1px solid var(--f2-stroke);
-  border-radius: var(--f2-radius-md);
-  background: var(--f2-bg-solid);
-  overflow: hidden;
-}
-
-.article-media-player-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-}
-
-.article-media-video {
-  display: block;
-  width: 100%;
-  max-height: 420px;
-  background: #000;
-}
-
-.article-media-audio {
-  display: block;
-  width: 100%;
-  height: 40px;
-  padding: 0 12px 10px;
-}
-
-/* 不能内嵌播放时的回退提示（观看页 / 防盗链） */
-.article-media-fallback {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--f2-stroke);
-  background: var(--f2-bg-layer);
-  font-size: 12px;
-  color: var(--f2-text-2);
-}
-
-.article-media-fallback > .material-symbols-rounded {
-  font-size: 16px;
-  color: var(--f2-text-3);
-}
-
-.article-media-fallback .f2-btn-soft {
-  height: 26px;
-  padding: 0 8px;
-  font-size: 12px;
-}
-
 /* 正文里的视频嵌入（Bilibili / YouTube 等 iframe 播放器）：按 16:9 占位，避免加载时跳版 */
 .article-embed {
   position: relative;
@@ -1858,81 +1866,29 @@ textarea:focus-visible {
   color: var(--f2-text-2);
 }
 
-.article-media-icon {
-  font-size: 22px;
-  color: var(--f2-accent-fg);
-  flex-shrink: 0;
-}
-
-.article-media-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.article-media-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--f2-text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.article-media-meta {
-  font-size: 12px;
-  color: var(--f2-text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.article-media-actions {
-  flex-shrink: 0;
-}
-
-.article-media-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--f2-accent-fg);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.article-media-more .material-symbols-rounded {
-  font-size: 18px;
-}
-
-/* 图片放大查看 */
-.article-lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 400;
+/* 订阅源给的原生音视频：接在正文之后就地播放（不再单开「附件」区域） */
+.article-inline-media {
+  margin-top: 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 32px;
-  background: rgba(0, 0, 0, 0.82);
-  cursor: zoom-out;
-  animation: f2-fade-in var(--f2-dur-2) var(--f2-ease);
+  gap: 10px;
 }
 
-.article-lightbox img {
-  max-width: 92%;
-  max-height: 84%;
+.article-inline-media-open {
+  align-self: flex-start;
+}
+
+.article-inline-audio,
+.article-inline-video {
+  width: 100%;
   border-radius: var(--f2-radius-md);
-  box-shadow: var(--f2-shadow-dialog);
+  background: var(--f2-bg-solid);
 }
 
-.article-lightbox-hint {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+.article-inline-video {
+  max-height: 420px;
 }
+
 
 /* 订阅源另附的摘要（正文与摘要分开保存时提示，可折叠） */
 .article-summary-block {
@@ -2513,6 +2469,15 @@ textarea:focus-visible {
   color: var(--f2-text-1);
 }
 
+/* 卡片标题栏右侧的操作按钮（如翻译设置的「测试翻译」）：比标题轻一些，别抢视线 */
+.settings-card-header > button {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .settings-card--rows > .settings-field {
   margin-bottom: 0;
   padding: 12px 0;
@@ -2525,6 +2490,393 @@ textarea:focus-visible {
 /* 卡片内最后一项不叠加外边距 */
 .settings-card > :last-child {
   margin-bottom: 0;
+}
+
+/* 翻译 Provider 网关管理 */
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 4px 0;
+}
+
+.provider-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-sm);
+  cursor: pointer;
+  transition: border-color var(--f2-dur-1) var(--f2-ease), background var(--f2-dur-1) var(--f2-ease);
+}
+
+.provider-item:hover {
+  background: var(--f2-fill-control-hover);
+  border-color: var(--f2-stroke-strong);
+}
+
+/* 正在编辑的那一项（点击列表项只切编辑，不再改「用哪个网关」） */
+.provider-item.editing {
+  border-color: var(--f2-accent);
+  background: color-mix(in srgb, var(--f2-accent) 6%, transparent);
+}
+
+/* 内置翻译服务：置顶、锁定（不可拖动） */
+.provider-item.builtin {
+  cursor: default;
+  background: color-mix(in srgb, var(--f2-fill-control) 45%, transparent);
+}
+
+/* 自定义 Provider：可拖动排序 */
+.provider-item.draggable {
+  cursor: grab;
+}
+
+.provider-item.draggable:active {
+  cursor: grabbing;
+}
+
+/* 行内只有名称：地址 / 协议 / 模型数都在下面的编辑区，列表里不再重复一遍 */
+.provider-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行右侧的删除按钮（垃圾桶图标）：改配置在下面，这里只负责删掉这一条 */
+.provider-item-delete {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  color: var(--f2-text-3);
+  cursor: pointer;
+}
+
+.provider-item-delete .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.provider-item-delete:hover {
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+  border-color: color-mix(in srgb, var(--f2-critical) 30%, transparent);
+}
+
+.provider-edit {
+  padding: 14px 0;
+  border-top: 1px solid var(--f2-stroke);
+  border-bottom: 1px solid var(--f2-stroke);
+  margin-bottom: 16px;
+}
+
+.provider-empty {
+  padding: 14px 0;
+  color: var(--f2-text-2);
+  font-size: 0.94em;
+}
+
+/* 翻译：模型目录（结构化条目，每条模型带自己的参数）。
+   设置面板固定 560px 宽（内容区约 480px），所以这里一律用「可换行的 flex + 基准宽度」排布，
+   不用固定列数的 grid：列宽一旦超过可用宽度，内容就会被挤出面板、横向裁切。 */
+.settings-field.settings-field--block {
+  display: block;
+  align-items: stretch;
+}
+
+.model-catalog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+/* 标题块：给足基准宽度，空间不够时整块换到下一行，绝不压成一字一行 */
+.model-catalog-title {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.model-catalog-title > label {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 400;
+  color: var(--f2-text-1);
+}
+
+/* 标题块里的说明就贴在标签下面，不需要 .settings-hint 那条上负边距（用于字段之后的兄弟节点） */
+.model-catalog-title > .settings-hint {
+  margin-top: 0;
+}
+
+/* 翻译页的字段说明：贴住自己那一项，并与下一项拉开距离。
+   .settings-field 自带 20px 下边距，说明默认 margin-top:-8px 只压掉一点，会让说明看着更像在描述下一项。 */
+.provider-edit > .settings-hint {
+  margin: -14px 0 16px 0;
+}
+
+/* 模型列表容器：每个模型行自己是带描边的盒子，容器不再套一层框（否则是双层框） */
+.model-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-catalog-empty {
+  margin: 0;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--f2-text-3);
+}
+
+/* 一行模型 + 它自己的测试结果：结果紧贴该行，不跟别的行混在一起 */
+.model-row-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 测试结果胶囊：绿 = 连通、红 = 失败。失败原因是服务端原话，可能很长、会换行 */
+.model-test-result {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.model-test-result.ok {
+  color: var(--f2-success-fg);
+  background: var(--f2-success-soft);
+}
+
+.model-test-result.fail {
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+}
+
+/* 单个模型行：左边 = 模型 ID + 徽标（当前 / 上下文窗口），右边 = 三个动作按钮。
+   参数不在这里改（走「编辑模型配置」弹窗），所以行本身是紧凑的只读展示。 */
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 模型 ID 展示框：沿用输入框的描边与内距，视觉上仍与表单同一条基线 */
+.model-row-display {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+}
+
+.model-row-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: var(--f2-text-1);
+}
+
+/* 上下文窗口徽标（1M / 32K） */
+.model-row-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--f2-text-2);
+  background: var(--f2-fill-control-hover);
+  white-space: nowrap;
+}
+
+.model-row-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 行内动作按钮：测试模型 / 编辑模型配置 / 删除 */
+.model-row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  color: var(--f2-text-3);
+  cursor: pointer;
+  /* 图标字体缺字形时会退化成原始文字（如 CABLE）；裁掉溢出，
+     免得几个按钮的文字互相压在一起、看着像乱码 */
+  overflow: hidden;
+}
+
+.model-row-action .material-symbols-rounded {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.model-row-action:hover:not(:disabled) {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control-hover);
+  border-color: var(--f2-stroke-strong);
+}
+
+.model-row-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.model-row-action--danger:hover:not(:disabled) {
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+  border-color: color-mix(in srgb, var(--f2-critical) 30%, transparent);
+}
+
+/* 测试中的图标转起来：「正在测」与「没在测」一眼可分 */
+@keyframes model-test-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.model-row-action.testing .material-symbols-rounded {
+  animation: model-test-spin 0.9s linear infinite;
+}
+
+.model-add {
+  align-self: flex-start;
+}
+
+/* 「编辑模型配置」弹窗：字段少，比通用 .modal 略窄；标签在上、输入在下，
+   像一张小表单（设置面板本身是左右分栏，照搬过来会显得挤）。 */
+.model-editor-modal {
+  width: 400px;
+}
+
+.model-editor-modal .modal-head {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.model-editor-modal .modal-head h2 {
+  margin-bottom: 0;
+}
+
+.model-editor-modal .settings-field {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.model-editor-modal .settings-field > label {
+  display: block;
+  width: auto;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--f2-text-2);
+}
+
+/* .settings-text-input 平时靠 flex 撑宽，这里是块级容器，必须显式给宽度，
+   否则输入框只有浏览器默认的那点宽度 */
+.model-editor-modal .settings-text-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+}
+
+/* 上下文窗口 + 最大输出 Token 并排：都只填一个短值，竖排白占两行高度。
+   下边距由这一行统一给，里面的字段自己不再带边距。 */
+.model-editor-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.model-editor-row .settings-field {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.model-editor-modal .modal-actions {
+  margin-top: 28px;
+}
+
+.model-editor-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--f2-radius-sm);
+  background: transparent;
+  color: var(--f2-text-2);
+  cursor: pointer;
+}
+
+.model-editor-close .material-symbols-rounded {
+  font-size: 20px;
+}
+
+.model-editor-close:hover {
+  color: var(--f2-text-1);
+  background: var(--f2-fill-control-hover);
+}
+
+/* 读取已保存配置失败的横幅：提醒别直接保存（会覆盖磁盘上的配置） */
+.translate-load-error {
+  display: block;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: var(--f2-radius-sm);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.translate-load-error .material-symbols-rounded {
+  font-size: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
 }
 
 /* 设置行 */
@@ -2567,6 +2919,7 @@ textarea:focus-visible {
 .feeds-tab,
 .appearance-tab,
 .network-tab,
+.translate-tab,
 .general-tab,
 .about-tab {
   display: flex;
@@ -2711,6 +3064,45 @@ textarea:focus-visible {
 .feed-search-clear:hover {
   background: var(--f2-fill-subtle-hover);
   color: var(--f2-text-1);
+}
+
+/* 批量清理（坏源 / 长期不更新）：按条件一键选中，再走「删除选中」的确认流程 */
+.feed-hygiene {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+.feed-hygiene-btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  border: 1px solid var(--f2-stroke);
+}
+
+.feed-hygiene-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.feed-hygiene-days {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+/* 订阅源行上的「刷新失败」标记 */
+.feed-error-tag {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: var(--f2-radius-sm);
+  font-size: 11px;
+  color: var(--f2-critical-fg);
+  background: var(--f2-critical-soft);
+  white-space: nowrap;
 }
 
 /* 搜索时的匹配结果提示 */
@@ -3472,5 +3864,112 @@ textarea:focus-visible {
 .update-hint {
   font-size: 12px;
   color: var(--f2-text-2);
+}
+
+/* ===== 划词翻译（SelectionTranslate）===== */
+/* 选中正文后、跟在选区最后一行右端之后的悬浮「翻译」按钮（右侧放不下时翻到选区左侧）。
+   位置完全由 JS 用视口坐标算出（left/top 内联），这里不能带 transform：
+   一带 transform，入场动画的 transform 关键帧就会和它互相覆盖，按钮会跳位。
+   入场 animation 也只用 opacity —— 平移/缩放的入场会让按钮在半透明期压在文字上，糊成一团。
+
+   底色必须始终**不透明**：这个按钮浮在正文文字之上，一旦底色透明，底下文字就透出来，
+   看起来像按钮被压到文字下面。所以这里不能用 --f2-fill-subtle-hover 那类半透明填充
+   （它给 rgba 值，用在浮窗内部的菜单项上没问题，用在这里会把按钮镂空）。 */
+.sel-translate-btn {
+  position: fixed;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--f2-radius-sm);
+  border: 1px solid var(--f2-stroke-strong);
+  background: var(--f2-bg-flyout);
+  box-shadow: var(--f2-shadow-flyout);
+  color: var(--f2-text-1);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  z-index: 520;
+  animation: sel-translate-fade var(--f2-dur-1) var(--f2-ease);
+  transition: background var(--f2-dur-1) var(--f2-ease);
+}
+
+/* 只淡入、不动 transform：避免与内联定位打架 */
+@keyframes sel-translate-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.sel-translate-btn:hover {
+  background: var(--f2-fill-control-hover);
+}
+
+.sel-translate-btn:active {
+  background: var(--f2-fill-control-pressed);
+}
+
+.sel-translate-btn .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--f2-accent-fg);
+}
+
+/* 浮窗：原文（顶部，弱化）在上，译文/状态在下。与按钮同一套不透明浮层底色 + 只淡入，
+   避免淡入期间正文透过浮层显出来（看着像文字糊在一起） */
+.sel-translate-popup {
+  position: fixed;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 14px;
+  background: var(--f2-bg-flyout);
+  border: 1px solid var(--f2-stroke);
+  border-radius: var(--f2-radius-lg);
+  box-shadow: var(--f2-shadow-dialog);
+  z-index: 560;
+  animation: sel-translate-fade var(--f2-dur-1) var(--f2-ease);
+}
+
+.sel-translate-source {
+  font-size: 13px;
+  color: var(--f2-text-3);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--f2-stroke);
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-translate-result {
+  font-size: 14px;
+  color: var(--f2-text-1);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sel-translate-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--f2-text-2);
+}
+
+/* 正在翻译：progress_activity 图标转起来（复用设置面板测模型那枚转圈，观感一致）。
+   只在 loading 容器上生效，error 容器不带 sel-translate-loading，错误图标不会跟着转。 */
+.sel-translate-loading .material-symbols-rounded {
+  animation: model-test-spin 0.9s linear infinite;
+}
+
+.sel-translate-error {
+  color: var(--f2-critical-fg);
+}
+
+.sel-translate-error .material-symbols-rounded {
+  color: var(--f2-critical-fg);
 }
 

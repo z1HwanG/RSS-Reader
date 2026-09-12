@@ -1,4 +1,4 @@
-﻿# 更新日志 / Changelog
+# 更新日志 / Changelog
 
 本文件记录本项目的所有重要变更。
 All notable changes to this project are documented in this file.
@@ -7,6 +7,43 @@ All notable changes to this project are documented in this file.
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
+
+## [0.6.0] - 2026-09-12
+
+### 新增 / Added
+
+- **翻译**：多服务商网关（大模型 + 内置微软 / 谷歌 / DeepL / 腾讯翻译）、正文逐段对照翻译、
+  划词翻译浮窗。
+  Translation with multiple gateways, paragraph-by-paragraph bilingual rendering and a selection popup.
+- **翻译流式输出与「关闭思考」开关**：译文边生成边上屏；推理模型可关掉思考模式提速。
+  Streaming translations, plus a switch to disable thinking mode on reasoning models.
+- **翻译结果缓存**：按「文本 + 语言」本地缓存，整篇与划词共用。
+  Translation results are cached locally.
+- **订阅源批量清理**：一键选中「更新失败」或「N 天未更新」（默认 365 天）的订阅源后批量删除。
+  One-click selection of refresh-failed and stale feeds for bulk deletion.
+
+### 变更 / Changed
+
+- **移除底部附件区**：媒体改为在正文里原位播放。
+  The bottom attachments area was removed; media now plays in place inside the body.
+- **正文 iframe 不再一律删除**：认不出平台的 iframe（音频播放器多为此类）保留并加 `sandbox`。
+  Iframes are no longer stripped: unrecognised ones (audio players) are kept and sandboxed.
+
+### 修复 / Fixed
+
+- **视频播放器跑到文末、并与附件区重复**。
+  Video players no longer land at the article's end or duplicate the attachments area.
+- **「获取原文」对「正文只有一个播放器」的帖子静默失效**。
+  "Fetch full text" silently failed for player-only posts.
+- **划词按钮压住正文、悬停变镂空**。
+  The selection chip no longer covers the text or turns see-through on hover.
+- **「更新失败」按钮一直是灰的**。
+  The "refresh failed" button was permanently grey.
+
+### 文档 / Documentation
+
+- README 补充翻译与订阅源清理，并更正过时的音视频说明。
+  README updated for translation and feed cleanup.
 
 ## [0.5.0] - 2026-09-10
 

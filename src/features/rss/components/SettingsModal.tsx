@@ -6,7 +6,7 @@
  *   网络: HTTP 代理（格式校验 + 连通性测试）；通用: 清理缓存 / 备份还原
  *   所有设置即时生效（含阅读字号）；点击遮罩或按 Esc 关闭
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as showSaveDialog, open as showOpenDialog } from "@tauri-apps/plugin-dialog";
 import {
   buildProxyUrl,
@@ -14,7 +14,7 @@ import {
   type ThemePreference,
   type ProxyPrefs,
 } from "../../../lib/preferences";
-import type { Feed, Group } from "../types";
+import type { Article, Feed, Group } from "../types";
 import {
   filterFeedsByName,
   sortFeeds,
@@ -24,10 +24,18 @@ import {
   type FeedSortMode,
 } from "../../../lib/feedOrder";
 import * as rssService from "../services/rssService";
+import {
+  DEFAULT_STALE_DAYS,
+  STALE_DAY_OPTIONS,
+  failLabel,
+  failedFeeds,
+  staleFeeds,
+} from "../../../lib/feedHygiene";
 import * as updateService from "../services/updateService";
+import { TranslateSettings } from "./TranslateSettings";
 import pkg from "../../../../package.json";
 
-type SettingsTab = "feeds" | "organize" | "appearance" | "network" | "general" | "about";
+type SettingsTab = "feeds" | "organize" | "appearance" | "network" | "translate" | "general" | "about";
 
 /** 「全部订阅源」排序方式 / 方向的本地偏好键（只影响设置面板展示顺序） */
 const FEED_SORT_STORAGE_KEY = "rss-reader-feed-sort-mode";
@@ -36,6 +44,8 @@ const FEED_SORT_DIRECTION_KEY = "rss-reader-feed-sort-direction";
 interface SettingsModalProps {
   onClose: () => void;
   feeds: Feed[];
+  /** 全部文章：只用于「批量清理」判断某个源多久没更新（取每个源最新一篇的时间） */
+  articles: Article[];
   groups: Group[];
   fontSize: number;
   onFontSizeChange: (size: number) => void;
@@ -82,6 +92,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: "organize", label: "分组与排序" },
   { id: "appearance", label: "外观" },
   { id: "network", label: "网络" },
+  { id: "translate", label: "翻译" },
   { id: "general", label: "通用" },
   { id: "about", label: "关于" },
 ];
@@ -216,6 +227,7 @@ function formatBytes(bytes: number): string {
 export function SettingsModal({
   onClose,
   feeds,
+  articles,
   groups,
   fontSize,
   onFontSizeChange,
@@ -259,6 +271,14 @@ export function SettingsModal({
   const [editUrl, setEditUrl] = useState("");
   const [editOpenMethod, setEditOpenMethod] = useState<string>("internal");
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[] | null>(null);
+  /** 「长期不更新」的天数档位（只影响批量清理的判定，不落盘） */
+  const [staleDays, setStaleDays] = useState<number>(DEFAULT_STALE_DAYS);
+  /** 批量清理用：连续失败的源 / 长期不更新的源（按条件一键选中，再走删除确认） */
+  const failedList = useMemo(() => failedFeeds(feeds), [feeds]);
+  const staleList = useMemo(
+    () => staleFeeds(feeds, articles, staleDays),
+    [feeds, articles, staleDays],
+  );
   // 清理缓存：待确认的档位 + 完成提示
   const [cleanupNotice, setCleanupNotice] = useState<string | null>(null);
 
@@ -1252,6 +1272,42 @@ export function SettingsModal({
                     </div>
                   )}
                 </div>
+                {/* 批量清理：按条件一键选中，再走上面的「删除选中」确认流程。
+                    不直接删 —— 删源会连带删掉该源的全部文章且不可撤销，中间留一道确认。 */}
+                {feeds.length > 0 && (
+                  <div className="feed-hygiene">
+                    <button
+                      type="button"
+                      className="f2-btn-soft feed-hygiene-btn"
+                      disabled={failedList.length === 0}
+                      onClick={() => setCheckedFeedIds(new Set(failedList.map((f) => f.id)))}
+                      title="最近一次刷新失败的订阅源。单次失败也可能是网络抖动——列表里会标出连续失败次数，请按提示复核后再删"
+                    >
+                      更新失败{failedList.length > 0 ? ` ${failedList.length}` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      className="f2-btn-soft feed-hygiene-btn"
+                      disabled={staleList.length === 0}
+                      onClick={() => setCheckedFeedIds(new Set(staleList.map((f) => f.id)))}
+                      title="以该源最新一篇文章的时间为准；还没抓到过文章的源按订阅时间算"
+                    >
+                      未更新{staleList.length > 0 ? ` ${staleList.length}` : ""}
+                    </button>
+                    <select
+                      className="settings-select feed-hygiene-days"
+                      value={staleDays}
+                      onChange={(e) => setStaleDays(Number(e.target.value))}
+                      title="「未更新」的天数门槛"
+                    >
+                      {STALE_DAY_OPTIONS.map((d) => (
+                        <option key={d} value={d}>
+                          {d} 天
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {feeds.length === 0 ? (
                   <div className="feeds-group-empty">还没有订阅源</div>
                 ) : visibleFeeds.length === 0 ? (
@@ -1271,6 +1327,13 @@ export function SettingsModal({
                           <span className="feeds-manage-name" title={feed.url}>
                             {feed.title || feed.url}
                           </span>
+                          {/* 刷新失败标记：悬停看具体原因。批量选中用「当前是否失败」判定，
+                              连续失败次数放在这里展示，让用户自己判断是抖动还是真下线 */}
+                          {feed.last_error && (
+                            <span className="feed-error-tag" title={feed.last_error}>
+                              {failLabel(feed)}
+                            </span>
+                          )}
                           <div className="feeds-manage-controls">
                             <span className="feed-group-tag">
                               {groups.find((g) => g.id === feed.group_id)?.name ?? "未分组"}
@@ -1524,6 +1587,9 @@ export function SettingsModal({
               )}
             </div>
           )}
+
+          {/* ===== 翻译 ===== */}
+          {tab === "translate" && <TranslateSettings />}
 
           {/* ===== 通用 ===== */}
           {tab === "general" && (

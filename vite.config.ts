@@ -4,28 +4,15 @@ import react from "@vitejs/plugin-react";
 // Tauri 开发需要固定端口，避免随机端口
 const host = process.env.TAURI_DEV_HOST;
 
-/**
- * 文件监听错误守卫（仅 dev）。
- *
- * 背景：编辑器 / 工具在保存文件时会「先写临时文件再改名」（例如
- * `src/.App.tsx.<pid>.<uuid>.tmpdir/App.tsx.tmp`）。chokidar 可能刚好在临时文件
- * 被删除的瞬间去 watch 它，Windows 下抛 `EBUSY: resource busy or locked`。
- * chokidar 的 `isFatalError` 只把 EACCES / EPERM 当致命错误，EBUSY 不是致命错误，
- * 但 Node 的 FSWatcher 在无人处理 `error` 事件时会把异常抛到进程顶层，于是
- * vite 直接退出，`tauri dev` 报 "beforeDevCommand terminated"，
- * 窗口里的页面就冻在崩溃前的内容上（看起来像「改了代码却没生效」）。
- *
- * 这里做两层防护：
- * 1. 订阅 `server.watcher` 的 `error` 事件，让 Node 认为该事件已被处理；
- * 2. 进程级 `uncaughtException` 兜底，只忽略这类资源占用错误，其余照旧抛错。
- */
+/** 资源占用类错误码：临时文件在扫描过程中被删掉时才会出现 */
+const RESOURCE_CODES = /(EBUSY|ENOENT|ENOTDIR)/;
+
 /**
  * 判定「可忽略的文件监听错误」。
  * 只放行资源占用类错误（EBUSY / ENOENT / ENOTDIR —— 临时文件在扫描过程中被删除时会出现），
  * 且必须带上临时文件的特征（`.tmpdir` / `.tmp`）或位于删除流程里；
  * 像 EACCES「没权限读某个真实文件」这种属于真问题，必须照旧暴露出来。
  */
-const RESOURCE_CODES = /(EBUSY|ENOENT|ENOTDIR)/;
 const isFileWatchError = (text: string): boolean =>
   RESOURCE_CODES.test(text) && /(\.tmpdir|\.tmp\b|tmpdir|unlink|deleted)/i.test(text);
 
@@ -46,6 +33,21 @@ function installProcessLevelGuard(): void {
   });
 }
 
+/**
+ * 文件监听错误守卫（仅 dev）。
+ *
+ * 背景：编辑器 / 工具在保存文件时会「先写临时文件再改名」（例如
+ * `src/.App.tsx.<pid>.<uuid>.tmpdir/App.tsx.tmp`）。chokidar 可能刚好在临时文件
+ * 被删除的瞬间去 watch 它，Windows 下抛 `EBUSY: resource busy or locked`。
+ * chokidar 的 `isFatalError` 只把 EACCES / EPERM 当致命错误，EBUSY 不是致命错误，
+ * 但 Node 的 FSWatcher 在无人处理 `error` 事件时会把异常抛到进程顶层，于是
+ * vite 直接退出，`tauri dev` 报 "beforeDevCommand terminated"，
+ * 窗口里的页面就冻在崩溃前的内容上（看起来像「改了代码却没生效」）。
+ *
+ * 这里做两层防护：
+ * 1. 订阅 `server.watcher` 的 `error` 事件，让 Node 认为该事件已被处理；
+ * 2. 进程级 `uncaughtException` 兜底，只忽略这类资源占用错误，其余照旧抛错。
+ */
 function fileWatchGuard(): Plugin {
   return {
     name: "rss-reader:file-watch-guard",
@@ -84,8 +86,14 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // Rust 文件变更不需要前端 HMR
-      ignored: ["**/src-tauri/**"],
+      ignored: [
+        // Rust 文件变更不需要前端 HMR
+        "**/src-tauri/**",
+        // 本地验证脚本 / 工具产物：这些目录频繁增删（截图、探针脚本），
+        // 监听它们只会让 dev server 无谓地重载
+        "**/.verify/**",
+        "**/.dsh-vision-router/**",
+      ],
     },
   },
 
