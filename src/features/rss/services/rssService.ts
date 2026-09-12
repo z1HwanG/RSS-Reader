@@ -16,12 +16,22 @@ let lastSavedState: AppState | null = null;
 /** 保存本地持久化状态 */
 export function saveState(state: AppState): Promise<void> {
   lastSavedState = state;
-  return call<void>("save_state", { state }).catch((err: unknown) => {
+  // 串行化写盘：并发两次 save_state 完成顺序不确定时，磁盘可能停在旧状态。
+  // 队列吞掉前序任务的失败，保证失败不阻塞后续写盘；错误仍通过返回的 promise 抛给调用方。
+  const task = saveQueue.then(() => call<void>("save_state", { state }));
+  saveQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task.catch((err: unknown) => {
     // 写盘失败：清空标记，允许下次重试
     lastSavedState = null;
     throw err;
   });
 }
+
+/** 写盘队列：保证 save_state 按提交顺序执行 */
+let saveQueue: Promise<void> = Promise.resolve();
 
 // ===== 防抖批量落盘 =====
 // 高频操作（标记已读 / 收藏 / 排序等）若每次都全量序列化整个 AppState（含全部文章 HTML）
@@ -39,7 +49,11 @@ export function saveStateDebounced(state: AppState, delayMs = 800): void {
     const pending = pendingSave;
     pendingSave = null;
     // 引用未变说明没有实际变更（App 侧只在修改时创建新对象），跳过写盘
-    if (pending && pending !== lastSavedState) void saveState(pending).catch(() => {});
+    if (pending && pending !== lastSavedState) {
+      void saveState(pending).catch((err: unknown) => {
+        console.error("状态写盘失败：", err);
+      });
+    }
   }, delayMs);
 }
 
@@ -51,7 +65,12 @@ export function flushPendingSave(): void {
   }
   const pending = pendingSave;
   pendingSave = null;
-  if (pending && pending !== lastSavedState) void saveState(pending).catch(() => {});
+  // unload 里只能 fire-and-forget，但失败必须留痕：静默吞掉会让用户以为已保存
+  if (pending && pending !== lastSavedState) {
+    void saveState(pending).catch((err: unknown) => {
+      console.error("关闭前保存状态失败：", err);
+    });
+  }
 }
 
 /** 抓取一个订阅源并解析（全量抓取：不带条件请求头，服务端总会返回完整内容） */
@@ -62,6 +81,25 @@ export function fetchFeed(url: string, proxy?: ProxyConfig): Promise<FetchResult
 /** 抓取文章原文 HTML（用于获取完整正文） */
 export function fetchArticleHtml(url: string, proxy?: ProxyConfig): Promise<string> {
   return call<string>("fetch_article_html", { url, proxy });
+}
+
+/** 按需读取文章正文（正文与元数据分离存储，查看文章时才取） */
+export function getArticleContent(feedId: string, articleId: string): Promise<string | null> {
+  return call<string | null>("get_article_content", { feedId, articleId });
+}
+
+/** 删除订阅源的全部正文文件（删源时清理），返回清掉的文件数 */
+export function deleteFeedContent(feedId: string): Promise<number> {
+  return call<number>("delete_feed_content", { feedId });
+}
+
+/** 迁移正文文件（订阅源 URL 变更 → feed id / 文章 id 重算后，内容搬到新位置） */
+export function moveFeedContent(
+  oldFeedId: string,
+  newFeedId: string,
+  pairs: { oldId: string; newId: string }[],
+): Promise<void> {
+  return call<void>("move_feed_content", { oldFeedId, newFeedId, pairs });
 }
 
 /** 备份：把当前状态写入指定文件（状态由前端传入，后端无需再读一遍磁盘） */

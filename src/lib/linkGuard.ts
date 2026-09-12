@@ -22,6 +22,15 @@ export function resolveAnchorUrl(anchor: HTMLAnchorElement): URL | null {
   }
 }
 
+/** 危险协议：交给 WebView 默认处理等于在应用内执行（javascript:）或加载本地内容（file:），必须拦下 */
+const DANGEROUS_PROTOCOLS = new Set([
+  "javascript:",
+  "vbscript:",
+  "data:",
+  "blob:",
+  "file:",
+]);
+
 /** 安装全局链接守卫（应用启动时调用一次） */
 export function installLinkGuard(): void {
   document.addEventListener(
@@ -38,8 +47,14 @@ export function installLinkGuard(): void {
       if (!raw || raw.startsWith("#")) return;
 
       const url = resolveAnchorUrl(anchor);
-      // 无法解析或非 http(s)（mailto: / tel: 等）交给系统默认处理
-      if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) return;
+      if (!url) return;
+      // 危险协议一律 preventDefault：不跳转、不交给系统，正文消毒漏网的在这里兜底
+      if (DANGEROUS_PROTOCOLS.has(url.protocol)) {
+        event.preventDefault();
+        return;
+      }
+      // 其余非 http(s)（mailto: / tel: 等）交给系统默认处理
+      if (url.protocol !== "http:" && url.protocol !== "https:") return;
 
       // 无论如何都阻止 WebView 整页跳转，避免应用 UI 被覆盖
       event.preventDefault();

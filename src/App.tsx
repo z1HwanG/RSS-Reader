@@ -55,15 +55,6 @@ async function fetchOneFeed(
   return { result };
 }
 
-/** 搜索用去 HTML 标签（正则实现，避免大列表逐条 DOM 解析的开销） */
-function stripHtmlForSearch(html: string): string {
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /** 计算字符串的 SHA-256 前 16 个十六进制字符（与 Rust short_hash 一致） */
 async function shortHash(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
@@ -190,10 +181,12 @@ function App(): JSX.Element {
       live.add(a.id);
       let text = cache.get(a.id);
       if (text === undefined) {
-        // 检索范围：标题 + 去标签正文 + 摘要 + 作者 + 标签（正文种类不限，纯文本 / Markdown 原文也可命中）
+        // 检索范围：标题 + 正文预览 + 摘要 + 作者 + 标签。
+        // 正文与元数据分离后（存储 v5）全量正文不再进内存，用落盘时生成的
+        // 300 字纯文本预览兜底 —— 换来的是启动加载与每次保存都不再搬运几十 MB 正文
         const parts = [
           a.title ?? "",
-          stripHtmlForSearch(a.content ?? ""),
+          a.preview ?? "",
           a.summary ?? "",
           a.author ?? "",
           (a.categories ?? []).join(" "),
@@ -231,12 +224,19 @@ function App(): JSX.Element {
       .finally(() => setLoading(false));
   }, []);
 
-  // 页面隐藏 / 关闭前把防抖挂起的变更立即落盘，避免尾部变更丢失
+  // 页面隐藏 / 关闭前把防抖挂起的变更立即落盘，避免尾部变更丢失。
+  // visibilitychange 比关闭窗口早得多（切窗口 / 最小化就触发），把丢失窗口压到最小；
+  // unload 里无法等待 IPC 完成，真正的兜底是越早落盘越好。
   useEffect(() => {
     const flush = (): void => rssService.flushPendingSave();
+    const onVisibility = (): void => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
     return () => {
+      window.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
     };
@@ -266,6 +266,16 @@ function App(): JSX.Element {
   // 自动抓取定时器引用的刷新函数（稍后赋值）
   // 刷新入口引用：供自动抓取定时器与批量导入调用（可指定只刷新部分订阅源）
   const refreshRef = useRef<(feeds?: Feed[]) => void>(() => {});
+  // 批量导入后延迟刷新的定时器：组件卸载时清掉，避免调用已失效的回调
+  const importRefreshTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (importRefreshTimerRef.current != null) {
+        window.clearTimeout(importRefreshTimerRef.current);
+      }
+    },
+    [],
+  );
   // 刷新重入锁（用 ref 避免把 refreshing 放进依赖里导致回调重建）
   const refreshingRef = useRef(false);
 
@@ -613,8 +623,14 @@ function App(): JSX.Element {
       return next;
     });
 
-    // 只刷新本次导入的订阅源，不再连带刷新全部存量源
-    setTimeout(() => void refreshRef.current?.(toAdd), 100);
+    // 只刷新本次导入的订阅源，不再连带刷新全部存量源（定时器在卸载时清理，见上方 ref）
+    if (importRefreshTimerRef.current != null) {
+      window.clearTimeout(importRefreshTimerRef.current);
+    }
+    importRefreshTimerRef.current = window.setTimeout(() => {
+      importRefreshTimerRef.current = null;
+      void refreshRef.current?.(toAdd);
+    }, 100);
   }, []);
 
   /** 删除订阅源 */
@@ -628,6 +644,8 @@ function App(): JSX.Element {
       rssService.saveStateDebounced(next);
       return next;
     });
+    // 正文文件与元数据分离存储：元数据随上面的保存消失，正文在这里清理（后台执行）
+    void rssService.deleteFeedContent(feedId).catch(() => {});
     if (selectedFeedId === feedId) {
       setSelectedFeedId(null);
       setSelectedArticleId(null);
@@ -646,6 +664,10 @@ function App(): JSX.Element {
       rssService.saveStateDebounced(next);
       return next;
     });
+    // 逐个清理正文文件（后台执行，失败只影响磁盘占用不影响功能）
+    for (const feedId of feedIds) {
+      void rssService.deleteFeedContent(feedId).catch(() => {});
+    }
     if (selectedFeedId && feedIds.includes(selectedFeedId)) {
       setSelectedFeedId(null);
       setSelectedArticleId(null);
@@ -672,6 +694,15 @@ function App(): JSX.Element {
     const remappedArticles = remapped
       ? dedupeArticlesById(remapped.articles) ?? remapped.articles
       : null;
+    // 正文文件跟着 id 迁移（分离存储）：旧 feed 目录 → 新 feed 目录，元数据里的 id 已重算
+    if (urlChanged && remapped) {
+      const pairs = stateRef.current.articles
+        .filter((a) => a.feed_id === feedId)
+        .map((a) => ({ oldId: a.id, newId: remapped.idMap[a.id] ?? a.id }));
+      if (pairs.length > 0) {
+        void rssService.moveFeedContent(feedId, newId, pairs).catch(() => {});
+      }
+    }
 
     setState((prev) => {
       const next: AppState = {

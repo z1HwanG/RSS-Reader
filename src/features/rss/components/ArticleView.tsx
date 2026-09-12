@@ -9,6 +9,7 @@ import type { Article, Feed, MediaItem, ProxyConfig } from "../types";
 import * as rssService from "../services/rssService";
 import type { ShareAnchor } from "./ShareMenu";
 import { getFullContent, setFullContent } from "../../../lib/fullContentCache";
+import { loadArticleContent, peekArticleContent } from "../../../lib/articleContentStore";
 import {
   isTranslateConfigured,
   loadTranslateConfig,
@@ -91,12 +92,42 @@ function pickFromSrcset(srcset: string): string {
 }
 
 /**
+ * 是否为脚本型 URL：允许任意大小写、前导空白与控制字符
+ * （浏览器解析 URL 属性时会忽略这些字符，`" javascript:..."` 一样会执行）
+ */
+function isScriptUrl(value: string): boolean {
+  const cleaned = value.replace(/^[\s\u0000-\u001f]+/, "");
+  return /^(javascript|vbscript|livescript|mocha):/i.test(cleaned);
+}
+
+/**
+ * 摘掉正文里的危险属性：行内事件属性（onclick / onerror / onload ……）与
+ * javascript: 类 URL。CSP（default-src 'self'）目前能兜底内联脚本，但那是最后一道
+ * 防线 —— 源头先摘掉，任何一次 CSP 放松都不会把正文变成 XSS 跳板。
+ */
+function stripDangerousAttributes(doc: Document): void {
+  doc.querySelectorAll("*").forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.toLowerCase().startsWith("on")) el.removeAttribute(attr.name);
+    }
+    for (const name of ["href", "src", "xlink:href", "action", "formaction", "poster"]) {
+      const value = el.getAttribute(name);
+      if (value !== null && isScriptUrl(value)) el.removeAttribute(name);
+    }
+    // iframe 的 srcdoc 是一份独立 HTML，且会继承应用源（配合 allow-same-origin），
+    // 是绕开 src 校验的口子 —— 一律不渲染
+    if (el instanceof HTMLIFrameElement) el.removeAttribute("srcdoc");
+  });
+}
+
+/**
  * 规范化正文 HTML：
- * 1. 回填懒加载图片（data-src / data-original / data-lazy-src / data-original-src / srcset）；
- * 2. http(s) 图片统一改走本地 rssimg 协议，由 Rust 侧带 UA + 代理抓取，
+ * 1. 消毒：移除脚本类节点、行内事件属性与 javascript: 类 URL（见 stripDangerousAttributes）；
+ * 2. 回填懒加载图片（data-src / data-original / data-lazy-src / data-original-src / srcset）；
+ * 3. http(s) 图片统一改走本地 rssimg 协议，由 Rust 侧带 UA + 代理抓取，
  *    绕开防盗链 Referer 校验与 http 图片的混合内容拦截；
- * 3. 移除脚本类节点与 srcset（避免浏览器选中未代理的原图地址）；
- * 4. 补齐图片懒加载与缩略图尺寸属性，减少加载时的版面跳动（排版优化）。
+ * 4. 移除脚本类节点与 srcset（避免浏览器选中未代理的原图地址）；
+ * 5. 补齐图片懒加载与缩略图尺寸属性，减少加载时的版面跳动（排版优化）。
  */
 function normalizeArticleHtml(html: string, baseUrl: string | null): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -104,6 +135,7 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
   doc
     .querySelectorAll('script, object, embed, form, base, meta[http-equiv="refresh"]')
     .forEach((el) => el.remove());
+  stripDangerousAttributes(doc);
 
   // iframe **不再一律删除**：认不出平台的 iframe 里可能有音频播放器
   // （Spotify / 小宇宙 / 网易云 / 各家播客托管的嵌入都是 iframe），
@@ -118,14 +150,30 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
     const current = (frame.getAttribute("src") ?? "").trim();
     if (!current && lazy) frame.setAttribute("src", lazy.trim());
 
-    // **协议相对地址必须补成 https**：`//music.163.com/...`（网易云外链播放器就是这种写法）
-    // 在本应用的页面源下会解析成 http://，而 CSP 的 frame-src 只放行 https → 播放器被静默拦掉，
-    // 界面上一片空白、也看不到报错。这里统一补成 https。
-    const src = (frame.getAttribute("src") ?? "").trim();
-    if (src.startsWith("//")) frame.setAttribute("src", `https:${src}`);
+    // src 必须能解析为原文站点上的**绝对 http(s) 地址**：
+    // 相对地址会落在应用自身源上，sandbox 的 allow-same-origin 会让它变成
+    // 同源脚本执行口；data: / blob: 同理拒绝。
+    const rawSrc = (frame.getAttribute("src") ?? "").trim();
+    if (!rawSrc) {
+      frame.remove();
+      return;
+    }
+    let abs: URL | null = null;
+    try {
+      abs = baseUrl ? new URL(rawSrc, baseUrl) : new URL(rawSrc);
+    } catch {
+      abs = null;
+    }
+    if (!abs || (abs.protocol !== "https:" && abs.protocol !== "http:")) {
+      frame.remove();
+      return;
+    }
+    frame.setAttribute("src", abs.toString());
 
     frame.setAttribute("loading", "lazy");
-    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups");
+    // 不给 allow-same-origin：第三方嵌入一旦以应用源加载（相对地址 / blob:），
+    // 拿到同源身份就能操纵整个应用 DOM；播放器在不带同源身份的 sandbox 下照常工作
+    frame.setAttribute("sandbox", "allow-scripts allow-presentation allow-popups");
   });
 
   doc.querySelectorAll("img").forEach((img) => {
@@ -303,6 +351,7 @@ function MetaChip({ icon, text }: { icon: string; text: string }): JSX.Element {
  */
 function buildRenderedHtml(
   article: Article,
+  content: string | null | undefined,
   fullContent: ExtractedContent | null,
 ): { html: string; embeds: VideoEmbed[] } {
   if (fullContent) {
@@ -311,7 +360,7 @@ function buildRenderedHtml(
       embeds: fullContent.embeds,
     };
   }
-  const raw = article.content ?? "";
+  const raw = content ?? "";
   const kind = detectContentKind(raw, article.content_type);
   if (kind === "empty") {
     // 正文为空时不写死提示：可能正在自动抓取原文，也许原文里只有视频嵌入
@@ -396,19 +445,52 @@ export function ArticleView({
     setTranslating(false);
   }, [article.id]);
 
-  const contentKind = detectContentKind(article.content ?? "", article.content_type);
+  /**
+   * 正文与元数据分离（存储 v5）：state 里没有正文，这里按需从 Rust 侧读一次，
+   * 会话内由 articleContentStore 缓存复用（切回已读过的文章不再走 IPC）。
+   */
+  const [storedContent, setStoredContent] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const cached = peekArticleContent(article.id);
+    if (cached !== undefined) {
+      setStoredContent(cached);
+      setContentLoading(false);
+      return;
+    }
+    setStoredContent(null);
+    setContentLoading(true);
+    void loadArticleContent(article.feed_id, article.id)
+      .then((content) => {
+        if (!cancelled) setStoredContent(content);
+      })
+      .catch(() => {
+        if (!cancelled) setStoredContent(null);
+      })
+      .finally(() => {
+        if (!cancelled) setContentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [article.id, article.feed_id]);
+  /** 生效正文：优先 state 里携带的（异常路径兜底），否则用按需加载的结果 */
+  const articleContent = article.content ?? storedContent;
+
+  const contentKind = detectContentKind(articleContent ?? "", article.content_type);
   /** 正文内容种类：html / text / markdown / image / external / empty */
-  const summaryText = plainTextLength(article.content ?? "");
+  const summaryText = plainTextLength(articleContent ?? "");
   /**
    * 正文疑似在这里就断了（源只给了摘要）。只用来把工具栏按钮的悬浮提示说清楚 ——
    * 正文末尾不再挂任何说明，入口常驻在工具栏。
    */
-  const bodyTruncated = looksTruncated(article.content ?? "");
+  const bodyTruncated = looksTruncated(articleContent ?? "");
 
   // 正文渲染（按内容种类分发 + 懒加载回填 + 图片走本地代理协议 + 视频嵌入单独成块）
   const { html: renderedHtml, embeds } = useMemo(
-    () => buildRenderedHtml(article, fullContent),
-    [article, fullContent],
+    () => buildRenderedHtml(article, articleContent, fullContent),
+    [article, articleContent, fullContent],
   );
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -494,13 +576,19 @@ export function ArticleView({
       }
       const wrap = document.createElement("div");
       wrap.className = "article-embed";
+      // src 只接受 https：嵌入地址由 contentRender 按平台白名单拼出，这里再拦一道
+      if (!/^https:\/\//i.test(embed.src)) {
+        sentinel.remove();
+        return;
+      }
       const frame = document.createElement("iframe");
       frame.src = embed.src;
       frame.loading = "lazy";
       frame.setAttribute("allowfullscreen", "true");
       frame.setAttribute(
         "sandbox",
-        "allow-scripts allow-same-origin allow-presentation allow-popups",
+        // 不给 allow-same-origin，理由同 normalizeArticleHtml 里的正文 iframe
+        "allow-scripts allow-presentation allow-popups",
       );
       frame.setAttribute("title", embed.title ?? `${embed.platform ?? "视频"} 播放器`);
       wrap.appendChild(frame);
@@ -792,8 +880,9 @@ export function ArticleView({
    * 订阅源完全没给正文（content 为空）：自动抓一次原文。
    * 这类文章要么正文全靠客户端渲染、要么整篇就是一条视频嵌入（例如博客里内嵌 B 站播放器），
    * 让用户为每篇都手点一次「获取全文」没有意义。抓不到时保持自动状态、只提示结果。
+   * 正文还在按需加载时不判空（加载完才发现真的没有），否则会抢跑触发抓取。
    */
-  const needsFullText = contentKind === "empty" && summaryText === 0;
+  const needsFullText = !contentLoading && contentKind === "empty" && summaryText === 0;
   const attemptedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!needsFullText || !article.link || fullContent) return;
@@ -1025,6 +1114,14 @@ export function ArticleView({
         dangerouslySetInnerHTML={{ __html: interleavedHtml ?? renderedHtml }}
       />
 
+      {/* 正文按需加载中（分离存储，读取毫秒级，只在正文非空时才有可感知的渲染） */}
+      {contentLoading && !renderedHtml && (
+        <p className="article-empty-hint">
+          <span className="material-symbols-rounded">progress_activity</span>
+          正文加载中…
+        </p>
+      )}
+
       {/* 订阅源没给正文时的状态说明（自动抓取中 / 原文页没抓到 / 无从抓取） */}
       {needsFullText &&
         !renderedHtml &&
@@ -1078,7 +1175,7 @@ export function ArticleView({
       {/* 正文另存有摘要时提示：正文可能只是摘要 */}
       {article.summary &&
         summaryText > 0 &&
-        article.summary.trim() !== (article.content ?? "").trim() && (
+        article.summary.trim() !== (articleContent ?? "").trim() && (
           <details className="article-summary-block">
             <summary>
               <span className="material-symbols-rounded">notes</span>

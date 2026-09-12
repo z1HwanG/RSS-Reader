@@ -35,12 +35,14 @@ function htmlToPlainText(html: string): string {
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-/** 正文的纯文本形态（摘要字段为空时的兜底来源） */
+/** 正文的纯文本形态（摘要字段为空时的兜底来源；分离存储后用落盘时生成的预览） */
 function bodyPlainText(article: Article): string {
   const raw = (article.content ?? "").trim();
-  if (!raw) return "";
-  const text = looksLikeHtml(raw) ? htmlToPlainText(raw) : raw;
-  return text.replace(/\s+/g, " ").trim();
+  if (raw) {
+    const text = looksLikeHtml(raw) ? htmlToPlainText(raw) : raw;
+    return text.replace(/\s+/g, " ").trim();
+  }
+  return (article.preview ?? "").replace(/\s+/g, " ").trim();
 }
 
 /** 折叠空白并截断（截断处补省略号） */

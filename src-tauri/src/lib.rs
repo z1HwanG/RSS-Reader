@@ -1,7 +1,7 @@
 mod commands;
 mod deep_link;
 
-use commands::rss::{ClientCache, ProxySetting};
+use commands::http::{ClientCache, ProxySetting};
 use std::sync::RwLock;
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -50,27 +50,30 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("rssimg", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                let response = commands::rss::handle_rssimg_request(&app, request).await;
+                let response = commands::image_proxy::handle_rssimg_request(&app, request).await;
                 responder.respond(response);
             });
         })
         .invoke_handler(tauri::generate_handler![
-            commands::rss::load_state,
-            commands::rss::save_state,
-            commands::rss::fetch_feed,
-            commands::rss::fetch_article_html,
-            commands::rss::backup_state,
-            commands::rss::restore_state,
-            commands::rss::read_file_text,
-            commands::rss::write_file_text,
-            commands::rss::update_proxy_setting,
-            commands::rss::test_proxy,
-            commands::rss::translate_text,
-            commands::rss::translate_texts,
-            commands::rss::load_translate_config,
-            commands::rss::save_translate_config,
-            commands::rss::clear_webview_cache,
-            commands::rss::cleanup_old_updater_dirs,
+            commands::state::load_state,
+            commands::state::save_state,
+            commands::feed::fetch_feed,
+            commands::feed::fetch_article_html,
+            commands::content_store::get_article_content,
+            commands::content_store::delete_feed_content,
+            commands::content_store::move_feed_content,
+            commands::state::backup_state,
+            commands::state::restore_state,
+            commands::state::read_file_text,
+            commands::state::write_file_text,
+            commands::http::update_proxy_setting,
+            commands::http::test_proxy,
+            commands::translate::translate_text,
+            commands::translate::translate_texts,
+            commands::translate::load_translate_config,
+            commands::translate::save_translate_config,
+            commands::housekeeping::clear_webview_cache,
+            commands::housekeeping::cleanup_old_updater_dirs,
             deep_link::take_pending_feed_link,
         ])
         .run(tauri::generate_context!())

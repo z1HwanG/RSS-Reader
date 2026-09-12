@@ -34,3 +34,6 @@ desktop.ini
 # 本地验证脚本与工具产物（不进仓库）
 .verify/
 .dsh-vision-router/
+
+# Mimosa 安全插件的工作目录（钩子状态 / 扫描历史，不进仓库）
+.mimosa/
