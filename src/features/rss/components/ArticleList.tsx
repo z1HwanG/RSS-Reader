@@ -300,7 +300,8 @@ export function ArticleList({
     const live = new Set<string>();
     for (const a of articles) {
       live.add(a.id);
-      const content = a.content;
+      // 正文与元数据分离后走 preview（纯文本，抓取落盘正文时生成）；内存正文兜底
+      const content = a.preview ?? a.content;
       if (!content) continue;
       const cached = previewCache.get(a.id);
       if (cached && cached.content === content) {

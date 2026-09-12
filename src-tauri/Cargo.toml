@@ -1,6 +1,6 @@
 [package]
 name = "rss-reader"
-version = "0.6.0"
+version = "0.7.0"
 description = "RSS 桌面阅读器"
 authors = ["RSS Reader"]
 edition = "2021"
@@ -22,6 +22,8 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "system-proxy", "gzip", "brotli", "deflate", "socks", "stream"] }
 # 消费 reqwest 的 bytes_stream（翻译流式读取）；reqwest 本来就传递依赖它，这里只是显式声明
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# 翻译 API Key 存 OS 凭据库（Windows 凭据管理器 / macOS 钥匙串），不再明文落盘
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 feed-rs = "2"
 thiserror = "2"
 sha2 = "0.10"
@@ -29,8 +31,9 @@ hex = "0.4"
 url = "2"
 log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
-# 腾讯云按 QPS 限流，请求之间要限速（用 tokio 的定时器）；tauri 本来就依赖它，这里只是显式声明
-tokio = { version = "1", features = ["time"] }
+# 腾讯云按 QPS 限流，请求之间要限速（用 tokio 的定时器）；net 用于 SSRF 防护里的域名解析。
+# tauri 本来就依赖它，这里只是显式声明
+tokio = { version = "1", features = ["time", "net"] }
 tauri-plugin-updater = "2.11.0"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-deep-link = "2.4.10"
@@ -40,4 +43,6 @@ tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
 strip = true
 lto = true
 codegen-units = 1
-opt-level = "s"
+# opt-level 3 而不是 "s"：状态持久化要序列化几十 MB 的 JSON，serde 在 O3 下明显更快；
+# 代价是安装包体积涨约 10-20%，运行速度优先于体积
+opt-level = 3

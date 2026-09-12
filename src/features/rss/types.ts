@@ -82,6 +82,11 @@ export interface Article {
    * 由 ArticleView 依据 content_type 决定渲染方式。
    */
   content: string | null;
+  /**
+   * 正文纯文本预览（前 300 字符，Rust 抓取落盘正文时生成）。
+   * 列表预览与搜索兜底用 —— 正文本体分离存储后不再随元数据下发。
+   */
+  preview?: string | null;
   /** 正文内容类型（MIME，如 text/html、text/plain、text/markdown）；旧数据缺失按 HTML 处理 */
   content_type?: string | null;
   /** 正文之外另存的摘要文本（仅供预览与「正文即摘要」提示） */

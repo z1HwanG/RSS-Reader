@@ -42,6 +42,7 @@ function mergeArticle(existing: Article, incoming: Article): Article {
     published_at: existing.published_at ?? incoming.published_at,
     // 正文取更长的一份：旧记录可能只有摘要，新抓到的才是全文
     content: pickLongerContent(existing.content, incoming.content),
+    preview: existing.preview ?? incoming.preview,
     title: existing.title ?? incoming.title,
     link: existing.link ?? incoming.link,
     content_type: existing.content_type ?? incoming.content_type,
@@ -174,6 +175,8 @@ export function dedupeArticlesById(articles: Article[]): Article[] | null {
  */
 export function appendArticles(existing: Article[], incoming: Article[]): Article[] {
   if (incoming.length === 0) return existing;
+  // 快路径：没有任何历史记录时不可能有重复，直接引用 incoming，免去一次全量扫描与拷贝
+  if (existing.length === 0) return incoming;
   // 现有记录在前：合并时以它们为准，新数据只用来补空缺字段
   return dedupeArticlesById([...existing, ...incoming]) ?? [...existing, ...incoming];
 }

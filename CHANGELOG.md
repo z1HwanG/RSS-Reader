@@ -8,6 +8,43 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-09-12
+
+### 新增 / Added
+
+- **正文与元数据分离存储（schema v5，自动迁移）**：state.json 只存元数据 + 300 字纯文本预览，
+  正文按 `articles/<feed_id>/<article_id>` 落盘、打开文章时按需读取。
+  启动加载与每次保存不再序列化几十 MB 正文。
+  Article bodies are now stored separately from metadata (auto-migrated on first launch);
+  startup and saving only handle lightweight metadata.
+- **翻译 API Key 改存系统凭据库**（Windows 凭据管理器 / macOS 钥匙串），不再明文落盘；
+  旧配置首次保存时自动迁移。
+  Translation API keys moved to the OS keyring.
+
+### 安全 / Security
+
+- **SSRF 防护**：订阅源 / 正文 / 图片抓取拒绝内网与回环地址（连接层校验 DNS 解析结果，防 DNS rebinding）。
+  Outbound fetches reject private / loopback targets, validated at connection time.
+- **文件命令路径门禁**：备份还原、OPML 导入导出只允许用户文档类型的扩展名，并拒绝访问应用数据目录。
+  File import/export commands are restricted to document extensions and denied in the app data dir.
+- **正文 HTML 消毒补全**：剥除行内事件属性、`javascript:` 类 URL 与 iframe `srcdoc`；
+  iframe 不再授予同源身份（去掉 `allow-same-origin`）。
+  Article HTML sanitisation completed; iframes no longer get same-origin identity.
+- **CSP 收紧**：`frame-src` 仅 https，显式 `script-src 'self'`。
+  Tightened CSP.
+
+### 性能 / Performance
+
+- 状态读写移入阻塞线程池，序列化改 `to_vec`；发布构建 `opt-level` 提至 3。
+  State IO moved off the async runtime; release builds now use opt-level 3.
+
+### 变更 / Changed
+
+- 代码结构：Rust 命令按职能拆分为 8 个子模块；设置面板按分区拆为独立组件。
+  Codebase re-organised: Rust commands split into focused modules; settings dialog split by section.
+- **搜索范围调整**：正文全文检索改为「标题 + 正文预览 + 摘要 + 作者 + 标签」。
+  Search now covers title + body preview + summary + author + tags (full-text search dropped).
+
 ## [0.6.0] - 2026-09-12
 
 ### 新增 / Added
