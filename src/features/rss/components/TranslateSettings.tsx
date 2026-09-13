@@ -26,6 +26,7 @@ import {
   type TranslateProtocol,
   type TranslateProvider,
 } from "../types";
+import { F2Select } from "./F2Select";
 import {
   getActiveProvider,
   getLastLoadError,
@@ -573,17 +574,15 @@ export function TranslateSettings(): JSX.Element {
                 )}
                 <div className="settings-field">
                   <label>API 格式</label>
-                  <select
-                    className="settings-select"
+                  <F2Select
                     value={editing.protocol}
-                    onChange={(e) => patchEditing({ protocol: e.target.value as TranslateProtocol })}
-                  >
-                    {PROTOCOL_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {PROTOCOL_INFO[value].label}
-                      </option>
-                    ))}
-                  </select>
+                    options={PROTOCOL_OPTIONS.map((value) => ({
+                      value,
+                      label: PROTOCOL_INFO[value].label,
+                    }))}
+                    onChange={(value) => patchEditing({ protocol: value as TranslateProtocol })}
+                    ariaLabel="API 格式"
+                  />
                 </div>
               </>
             )}

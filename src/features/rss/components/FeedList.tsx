@@ -29,6 +29,8 @@ interface FeedListProps {
   onRefreshFeed: (feedId: string) => void;
   /** 右键菜单：管理订阅源（打开设置） */
   onManageFeeds: () => void;
+  /** 右键菜单：删除该订阅源（连同其文章；确认框在本组件内弹） */
+  onDeleteFeed: (feedId: string) => void;
   /**
    * 已折叠的分组键（分组 id；未分组用本文件的 UNGROUPED_KEY 哨兵值）。
    * 由外层持久化（偏好 `sidebarCollapsedGroups`）：抽屉关掉再打开、重启应用都还记得。
@@ -67,10 +69,15 @@ export function FeedList({
   onMarkFeedRead,
   onRefreshFeed,
   onManageFeeds,
+  onDeleteFeed,
   collapsedKeys,
   onToggleGroupCollapsed,
 }: FeedListProps): JSX.Element {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  /** 待确认删除的订阅源（确认框与设置面板里的是同一套样式） */
+  const [confirmDelete, setConfirmDelete] = useState<{ feedId: string; title: string } | null>(
+    null,
+  );
   // 折叠状态由外层持有并持久化，这里只做一次集合化便于查询
   const collapsed = useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
   // 右键菜单按真实尺寸夹进视口：抽屉底部右键时不会被窗口下沿切掉
@@ -117,6 +124,16 @@ export function FeedList({
       document.removeEventListener("contextmenu", close);
     };
   }, [ctxMenu]);
+
+  // 确认框：Esc 取消（与设置面板的删除确认同一交互）
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setConfirmDelete(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmDelete]);
 
   const handleContextMenu = (e: MouseEvent, feedId: string): void => {
     e.preventDefault();
@@ -248,6 +265,50 @@ export function FeedList({
             <span className="material-symbols-rounded">settings</span>
             管理订阅源
           </button>
+          <div className="dropdown-divider" />
+          <button
+            className="dropdown-item danger"
+            onClick={() => {
+              const feed = feeds.find((f) => f.id === ctxMenu.feedId);
+              setConfirmDelete({ feedId: ctxMenu.feedId, title: feed?.title || feed?.url || "" });
+              setCtxMenu(null);
+            }}
+          >
+            <span className="material-symbols-rounded">delete</span>
+            删除订阅源
+          </button>
+        </div>
+      )}
+
+      {/* 删除确认对话框：样式复用设置面板里的删除确认（全局类） */}
+      {confirmDelete && (
+        <div className="modal-overlay confirm-overlay" onClick={() => setConfirmDelete(null)}>
+          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <span className="material-symbols-rounded confirm-icon">delete_forever</span>
+            <h3>确认删除</h3>
+            <p className="confirm-text">
+              确定要删除「{confirmDelete.title}」吗？该订阅源的文章也将一并删除，此操作不可撤销。
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="f2-btn-standard"
+                onClick={() => setConfirmDelete(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="f2-btn-accent confirm-delete-btn"
+                onClick={() => {
+                  onDeleteFeed(confirmDelete.feedId);
+                  setConfirmDelete(null);
+                }}
+              >
+                删除
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </aside>

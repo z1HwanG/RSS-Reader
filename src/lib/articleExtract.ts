@@ -225,6 +225,11 @@ const NOISE_SELECTOR = [
   "header",
   "footer",
   "dialog",
+  // ARIA 语义角色：banner/complementary/navigation/contentinfo 是页头、侧栏、导航、页脚
+  '[role="banner"]',
+  '[role="complementary"]',
+  '[role="navigation"]',
+  '[role="contentinfo"]',
 ].join(",");
 
 /**
@@ -304,8 +309,16 @@ export function isCommentArea(el: Element): boolean {
   return COMMENT_PATTERN.test(signature);
 }
 
-/** 结构性噪声：评论区一律移除；其余外壳节点按「命名 + 链接密度」判断 */
+/**
+ * 结构性噪声：评论区一律移除；其余外壳节点按「命名 + 链接密度」判断。
+ *
+ * 体积护栏：占页面文字大半的容器是主包装，不是外壳。VuePress 这类框架会把
+ * `sidebar-open` / `menu-open` 状态类挂在最外层容器上，命名规则命中其中的
+ * sidebar / menu 就删，等于把整篇正文连根拔掉（wiki.eryajf.net 实测整页清零）。
+ * 外壳（导航/侧栏/页脚）只会占页面文字的小头，超半数的一律放行。
+ */
 function removeStructuralNoise(root: Element): number {
+  const rootLength = elementTextLength(root);
   let removed = 0;
   root.querySelectorAll("div, section, ul, ol, article, aside").forEach((el) => {
     if (el === root) return;
@@ -314,7 +327,8 @@ function removeStructuralNoise(root: Element): number {
       removed += 1;
       return;
     }
-    if (isBoilerplate(el) && linkDensity(el) > 0.2) {
+    const holdsMostText = rootLength > 0 && elementTextLength(el) > rootLength * 0.5;
+    if (isBoilerplate(el) && linkDensity(el) > 0.2 && !holdsMostText) {
       el.remove();
       removed += 1;
     }
@@ -382,7 +396,9 @@ function collectCandidates(root: Element): Element[] {
  * 结果获取原文静默失败、播放器始终不出现。
  */
 function mediaElementCount(el: Element): number {
-  return el.querySelectorAll("iframe, audio, video, embed, object").length;
+  // `[data-rss-vod]` 是南方周末这类站点的播放器组件标记（见 collectVodMarkers）：
+  // 组件本身无文字，不计入的话视频文章会被判成「没有内容」
+  return el.querySelectorAll("iframe, audio, video, embed, object, [data-rss-vod]").length;
 }
 
 /** 计数容器内的视频嵌入（iframe 播放器），用于给容器打分排序 */
@@ -480,7 +496,22 @@ function extractEmbeds(container: Element): VideoEmbed[] {
  * 占位 div（不再算媒体元素），但那些是「已识别的视频」；剩下仍留在正文里的 iframe
  * 正是音频播放器这类认不出平台的嵌入。两者只要有一个，就算正文有媒体。
  */
-function resultOf(container: Element, source: string): ExtractedContent {
+function resultOf(
+  container: Element,
+  source: string,
+  vodMarkers: Element[] = [],
+  metaImage: string | null = null,
+): ExtractedContent {
+  // 播放器标记插回正文最前面：它的原位置（页头播放器区）常会被评分或去噪丢掉，
+  // detached 状态下收着，选完正文块再插回去，保证视频文章不丢播放器
+  for (const marker of vodMarkers) container.insertBefore(marker, container.firstChild);
+  // 正文一张图都没有时用页面的 og:image / twitter:image 补一张首图
+  if (metaImage && !container.querySelector("img")) {
+    const lead = container.ownerDocument.createElement("img");
+    lead.setAttribute("src", metaImage);
+    lead.setAttribute("loading", "lazy");
+    container.insertBefore(lead, container.firstChild);
+  }
   const embeds = extractEmbeds(container);
   const media = mediaElementCount(container);
   return {
@@ -527,6 +558,105 @@ export function collapseWhitespace(html: string): string {
 }
 
 /**
+ * noscript 图片恢复：很多站点（LQIP 模式）正文里的可见 <img> 只带 base64 模糊占位图，
+ * 真实图片放在紧邻的 <noscript><img src="真图"></noscript> 里 —— 去噪会把 noscript
+ * 删掉，图片就只剩糊图。这里把 noscript 里的真实地址回填给同级的占位 img。
+ */
+function recoverNoscriptImages(root: Element): void {
+  root.querySelectorAll("noscript").forEach((ns) => {
+    const content = ns.textContent ?? "";
+    if (!/<img\b/i.test(content)) return;
+    const inner = new DOMParser().parseFromString(content, "text/html");
+    const real = inner.querySelector("img[src]");
+    const src = real?.getAttribute("src")?.trim();
+    if (!src || !/^https?:\/\//i.test(src)) return;
+    // 占位目标：紧邻的 <img>，或同容器里第一张 src 为空 / data: 占位的 <img>
+    const prev = ns.previousElementSibling;
+    const target =
+      prev?.tagName === "IMG"
+        ? prev
+        : Array.from(ns.parentElement?.querySelectorAll("img") ?? []).find((img) => {
+            const current = img.getAttribute("src")?.trim() ?? "";
+            return current === "" || current.startsWith("data:");
+          });
+    if (target) {
+      target.setAttribute("src", src);
+      ns.remove();
+    }
+  });
+}
+
+/** 页面级 og:image / twitter:image（正文一张图都没有时补首图用） */
+function pickMetaImage(doc: Document): string | null {
+  const content =
+    doc.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content ??
+    doc.querySelector<HTMLMetaElement>('meta[name="twitter:image"], meta[name="og:image"]')?.content;
+  const value = content?.trim();
+  return value && /^https?:\/\//i.test(value) ? value : null;
+}
+
+/**
+ * 南方周末的音视频组件（Vue 的 `is="IVideoPlayer"/"IAudioPlayer"`，带 `file-id` 属性）：
+ * 静态 HTML 里只有组件声明，播放器由客户端渲染。这里把它们抽成 `data-rss-vod` 标记
+ * （fileId / 种类 / 封面），由上层解析出点播直链后换成真正的播放器。
+ * 抽取必须发生在 stripNoise 之前 —— 组件常挂在 `header.nfzm-content__header` 里，
+ * 去噪会先把它连同宿主一起删掉。
+ */
+export function collectVodMarkers(root: Element): Element[] {
+  const markers: Element[] = [];
+  // gcoresEnrich 等增强步骤注入的音频播放器：同样可能落在选不中的位置，一并收走插回正文
+  root.querySelectorAll("audio[data-rss-audio]").forEach((audio) => {
+    audio.remove();
+    markers.push(audio);
+  });
+  root.querySelectorAll("[file-id]").forEach((el) => {
+    const fileId = (el.getAttribute("file-id") ?? "").trim();
+    const component = el.getAttribute("is") ?? "";
+    // 组件声明形态才认：is 属性指明播放器，fileId 是腾讯云点播的纯数字 ID
+    if (!/player/i.test(component) || !/^\d{6,32}$/.test(fileId)) return;
+    const marker = el.ownerDocument.createElement("div");
+    marker.setAttribute("data-rss-vod", fileId);
+    if (/audio/i.test(component)) marker.setAttribute("data-rss-vod-kind", "audio");
+    const cover = (el.getAttribute("cover-url") ?? "").trim();
+    if (cover) marker.setAttribute("data-rss-vod-cover", cover);
+    el.replaceWith(marker);
+    markers.push(marker);
+  });
+  return markers;
+}
+
+/** 南方周末播放器组件对应的腾讯云点播信息接口（appid 固定为其账号值） */
+export function vodPlayInfoUrl(fileId: string): string {
+  return `https://playvideo.qcloud.com/getplayinfo/v2/1251434507/${encodeURIComponent(fileId)}`;
+}
+
+/** 从点播信息里挑直链：视频取清晰度最高的 mp4，音频取第一个 mp3/aac */
+export function pickVodMediaUrl(
+  info: unknown,
+  kind: "audio" | "video",
+): { url: string; durationSecs?: number } | null {
+  const list = (info as { videoInfo?: { transcodeList?: unknown } })?.videoInfo?.transcodeList;
+  if (!Array.isArray(list)) return null;
+  const entries = list.flatMap((item) => {
+    const t = item as { container?: string; width?: number; duration?: number; url?: unknown };
+    if (typeof t.url !== "string" || !/^https?:\/\//i.test(t.url)) return [];
+    const entry = { url: t.url, width: t.width, duration: t.duration };
+    const container = (t.container ?? "").toLowerCase();
+    if (kind === "audio") {
+      return /mp3|aac|m4a/.test(container) ? [entry] : [];
+    }
+    return container.includes("mp4") && (t.width ?? 0) > 0 ? [entry] : [];
+  });
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
+  const best = entries[0];
+  return {
+    url: best.url,
+    durationSecs: typeof best.duration === "number" && best.duration > 0 ? best.duration : undefined,
+  };
+}
+
+/**
  * 从已解析的文档中提取正文。
  * @param doc 已解析的原文文档（调用方负责用 DOMParser 解析）
  * @returns 正文 HTML 与诊断信息；提取不到内容时 textLength 为 0
@@ -534,6 +664,12 @@ export function collapseWhitespace(html: string): string {
 export function extractArticleFromDocument(doc: Document): ExtractedContent {
   const body = doc.body;
   if (!body) return { html: "", source: "无 body", textLength: 0, embeds: [], hasMedia: false };
+
+  // 南方周末等站点的音视频组件先抽成标记（必须在去噪前，否则连宿主一起被删）
+  const vodMarkers = collectVodMarkers(body);
+  // LQIP 站点的真图在 noscript 里，去噪前先回填给占位 img
+  recoverNoscriptImages(body);
+  const metaImage = pickMetaImage(doc);
 
   // 先整体去噪，避免评分被导航 / 侧栏带偏
   stripNoise(body);
@@ -546,11 +682,11 @@ export function extractArticleFromDocument(doc: Document): ExtractedContent {
     // 语义容器够长、且不是「整页外壳」（占比过高说明它包住了整个站点框架）就直接用
     const looksLikeShell = pageTextLength > 0 && length > pageTextLength * 0.6;
     if (length >= SEMANTIC_MIN_TEXT * 2 && !looksLikeShell) {
-      return resultOf(semantic.el, `语义容器 ${semantic.selector}`);
+      return resultOf(semantic.el, `语义容器 ${semantic.selector}`, vodMarkers, metaImage);
     }
     // 正文只有视频嵌入、没有文字：无需再走评分（评分的文字门槛必然选不中它）
     if (semantic.hasMediaOnly) {
-      return resultOf(semantic.el, `语义容器 ${semantic.selector}（仅视频嵌入）`);
+      return resultOf(semantic.el, `语义容器 ${semantic.selector}（仅视频嵌入）`, vodMarkers, metaImage);
     }
   }
 
@@ -571,21 +707,21 @@ export function extractArticleFromDocument(doc: Document): ExtractedContent {
     const length = elementTextLength(expanded);
     if (semantic && semantic.el && elementTextLength(semantic.el) > length) {
       cleanContainer(semantic.el);
-      return resultOf(semantic.el, `语义容器 ${semantic.selector}`);
+      return resultOf(semantic.el, `语义容器 ${semantic.selector}`, vodMarkers, metaImage);
     }
     if (length > 0) {
       const tag = expanded.tagName.toLowerCase();
       const cls = (expanded.getAttribute("class") ?? "").split(/\s+/).filter(Boolean)[0];
-      return resultOf(expanded, `评分块 <${tag}${cls ? ` class="${cls}"` : ""}>`);
+      return resultOf(expanded, `评分块 <${tag}${cls ? ` class="${cls}"` : ""}>`, vodMarkers, metaImage);
     }
   }
 
   // 兜底：语义容器即使偏短也先用它；再不行就整篇 body
   if (semantic) {
     cleanContainer(semantic.el);
-    return resultOf(semantic.el, `语义容器 ${semantic.selector}（兜底）`);
+    return resultOf(semantic.el, `语义容器 ${semantic.selector}（兜底）`, vodMarkers, metaImage);
   }
   cleanContainer(body);
   // 整页兜底时也在全页找一遍嵌入（正文块可能因为无文字而被评分忽略）
-  return resultOf(body, "整页 body（兜底）");
+  return resultOf(body, "整页 body（兜底）", vodMarkers, metaImage);
 }

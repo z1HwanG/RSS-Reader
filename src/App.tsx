@@ -1221,6 +1221,7 @@ function App(): JSX.Element {
                 setShowSettings(true);
                 setDrawerOpen(false);
               }}
+              onDeleteFeed={handleRemoveFeed}
               collapsedKeys={prefs.sidebarCollapsedGroups}
               onToggleGroupCollapsed={(key) => toggleCollapsedKey("sidebarCollapsedGroups", key)}
             />

@@ -171,3 +171,42 @@ fn live_feeds() {
         }
     }
 }
+
+/// SPA 站点（机核）的原文抓取实测（默认忽略，手动运行）：
+/// `cargo test --lib live_spa_fulltext -- --ignored --nocapture`
+/// 目的：确认机核这类「普通 UA 只回 JS 壳」的站点能靠爬虫 UA 重试拿到带图的正文。
+#[test]
+#[ignore = "需要联网"]
+fn live_spa_fulltext() {
+    let client = reqwest::Client::builder()
+        .user_agent(crate::commands::http::BROWSER_USER_AGENT)
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .expect("客户端构建");
+    for (url, marker) in [
+        (
+            "https://www.gcores.com/articles/219635",
+            "萨拉塔斯使用黑暗之心掌控战场",
+        ),
+        (
+            "https://www.ithome.com/1/001/667.htm",
+            "萨拉塔斯将于下周一登陆游戏 PTR",
+        ),
+    ] {
+        let result = tauri::async_runtime::block_on(fetch_article_html_with(&client, url));
+        match result {
+            Ok(html) => {
+                println!(
+                    "✓ {url}\n   {} 字节 · 正文含图 {}",
+                    html.len(),
+                    first_content_image(&html).is_some()
+                );
+                assert!(
+                    html.contains(marker),
+                    "{url} 抓回来的页面没有正文（爬虫 UA 重试未生效？）"
+                );
+            }
+            Err(e) => println!("✗ {url} → {e}"),
+        }
+    }
+}

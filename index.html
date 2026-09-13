@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 全局禁用 Referer：Chromium 不支持 <video>/<audio> 上的 referrerpolicy 属性，
+         媒体请求会带上应用源 Referer，被澎湃等按防盗链校验的媒体 CDN 403（img 支持
+         该属性，但统一由文档策略兜底）；应用内没有依赖 Referer 的场景，直接全关。 -->
+    <meta name="referrer" content="no-referrer" />
     <title>RSS Reader</title>
     <!-- 图标字体 Material Symbols Rounded 已本地化（src/assets/fonts/），经 styles.css @font-face 加载，
          不依赖 Google CDN：避免 CSP 拦截、网络不可达导致的渲染阻塞与图标显示为原始文字。 -->

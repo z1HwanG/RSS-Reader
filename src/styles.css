@@ -678,6 +678,11 @@ textarea:focus-visible {
   color: var(--f2-text-2);
 }
 
+/* 危险动作的菜单项（如删除订阅源）：红字提示，hover 底色不变 */
+.dropdown-item.danger {
+  color: var(--f2-critical-fg);
+}
+
 /* 分区标题 */
 .dropdown-section-title {
   font-size: 12px;
@@ -1435,35 +1440,41 @@ textarea:focus-visible {
   box-shadow: inset 0 -1px 0 var(--f2-stroke-input);
 }
 
-/* 阅读视图工具栏里的翻译控件：源/目标语言选择 + 网关-模型分组下拉 */
-.article-view-lang {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 32px;
-  padding: 0 8px 0 10px;
-  border-radius: var(--f2-radius-sm);
-  background: var(--f2-fill-control);
-  border: 1px solid var(--f2-stroke-strong);
-  font-size: 13px;
-  color: var(--f2-text-1);
+/* 上面的工具栏按钮规则按元素匹配、特异性高于 .dropdown-item，会把工具栏下拉菜单
+   的每一项也涂成「卡片按钮」（fill-control 底 + 描边），inline-flex 还会让菜单的
+   max-content 宽度翻倍（276px vs 115px）——菜单在 DOM 上始终是工具栏的后代，
+   fixed 定位只改变视觉位置。这里把菜单项恢复成自身形态。 */
+.article-view-toolbar .dropdown-item {
+  display: flex;
+  background: transparent;
+  border: none;
 }
 
-/* 「源」「译」两个提示字：说明这一栏是什么，比 tooltip 直接 */
+.article-view-toolbar .dropdown-item:hover:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+}
+
+.article-view-toolbar .dropdown-item:active:not(:disabled) {
+  background: var(--f2-fill-subtle-hover);
+  box-shadow: none;
+}
+
+/* 翻译控件组（源/译/模型/翻译按钮/进度）：整组参与工具栏换行，放不下时
+   一起挪到下一行，不会把「源」单独留在上一行行尾。
+   不加左侧分隔线：换行后它会成为第二行的行首缩进，与上一行按钮错位 */
+.translate-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 「源」「译」「模型」提示字：收在下拉按钮内部（原先悬浮在按钮外，
+   换行时变成孤字），作为值的前缀说明这一栏是什么 */
 .article-view-lang-cap {
   color: var(--f2-text-3);
   font-size: 12px;
-}
-
-.article-view-lang select {
-  max-width: 120px;
-  padding: 2px 4px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
+  flex-shrink: 0;
 }
 
 /* 翻译控件旁边的提示（如「配了网关但还没有模型」） */
@@ -1519,8 +1530,19 @@ textarea:focus-visible {
   animation: model-test-spin 0.9s linear infinite;
 }
 
+/* 菜单宽度随内容自适应（语言/模型下拉的选项都不长，240px 的固定下限
+   会让菜单右侧大片留白）；设上限防止个别长模型名把菜单顶到窗口边缘外 */
 .translate-picker-menu {
-  min-width: 240px;
+  min-width: 0;
+  width: max-content;
+  max-width: 320px;
+}
+
+/* 语言菜单：纯语言名单，宽随内容即可 */
+.article-lang-menu {
+  min-width: 0;
+  width: max-content;
+  max-width: 280px;
 }
 
 .translate-picker-group + .translate-picker-group {
@@ -1538,6 +1560,76 @@ textarea:focus-visible {
   margin-left: auto;
   font-size: 16px;
   color: var(--f2-accent-fg);
+}
+
+/* ================================================================
+ * 自定义下拉选择（F2Select，替代原生 <select>）：
+ * 原生弹出列表由系统渲染、跟随 Windows 深浅色而非应用主题，
+ * 暗色应用在浅色系统上会弹出白色列表 —— 菜单自绘后颜色完全由令牌控制。
+ * ================================================================ */
+.f2-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 96px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--f2-radius-sm);
+  background: var(--f2-fill-control);
+  border: 1px solid var(--f2-stroke-input);
+  font-size: 14px;
+  color: var(--f2-text-1);
+  cursor: pointer;
+  transition: border-color var(--f2-dur-1) var(--f2-ease);
+}
+
+.f2-select-btn:hover:not(:disabled) {
+  background: var(--f2-fill-control-hover);
+}
+
+.f2-select-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.f2-select-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.f2-select .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.f2-select .dropdown-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.f2-select .dropdown-item .material-symbols-rounded {
+  margin-left: auto;
+  font-size: 16px;
+  color: var(--f2-accent-fg);
+}
+
+/* 紧凑形态：行内小尺寸选择（如订阅管理的分组切换） */
+.f2-select-sm .f2-select-btn {
+  height: 26px;
+  min-width: 0;
+  max-width: 140px;
+  padding: 0 6px 0 8px;
+  font-size: 12px;
+}
+
+/* F2Select 菜单同样随内容自适应（设置页选项都很短） */
+.f2-select .dropdown-menu {
+  min-width: 120px;
+  width: max-content;
+  max-width: 320px;
 }
 
 .article-view-toolbar button .material-symbols-rounded {
@@ -1887,34 +1979,6 @@ textarea:focus-visible {
 
 .article-inline-video {
   max-height: 420px;
-}
-
-
-/* 订阅源另附的摘要（正文与摘要分开保存时提示，可折叠） */
-.article-summary-block {
-  margin-top: 24px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--f2-stroke);
-  font-size: 13px;
-  color: var(--f2-text-2);
-}
-
-.article-summary-block summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--f2-text-2);
-}
-
-.article-summary-block summary .material-symbols-rounded {
-  font-size: 16px;
-}
-
-.article-summary-body {
-  margin-top: 10px;
-  padding-left: 12px;
-  border-left: 2px solid var(--f2-stroke);
 }
 
 

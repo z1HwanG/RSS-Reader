@@ -18,6 +18,7 @@ import {
 } from "../../../lib/preferences";
 import type { FeedMovePosition } from "../../../lib/feedOrder";
 import { TranslateSettings } from "./TranslateSettings";
+import { F2Select } from "./F2Select";
 import { FeedsSettings } from "./settings/FeedsSettings";
 import { OrganizeSettings } from "./settings/OrganizeSettings";
 import { NetworkSettings } from "./settings/NetworkSettings";
@@ -267,20 +268,12 @@ export function SettingsModal({
                 <div className="settings-card-header">抓取与缓存</div>
                 <div className="settings-field">
                   <label htmlFor="refresh-frequency">自动抓取频率</label>
-                  <select
-                    id="refresh-frequency"
-                    className="settings-select"
+                  <F2Select
                     value={refreshFrequency}
-                    onChange={(e) =>
-                      onRefreshFrequencyChange(e.target.value as RefreshFrequency)
-                    }
-                  >
-                    {FREQUENCY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={FREQUENCY_OPTIONS}
+                    onChange={(value) => onRefreshFrequencyChange(value as RefreshFrequency)}
+                    ariaLabel="自动抓取频率"
+                  />
                 </div>
                 <div className="settings-field">
                   <label>缓存</label>

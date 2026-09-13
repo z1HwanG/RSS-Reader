@@ -26,6 +26,8 @@ import { LANGUAGE_OPTIONS, SOURCE_LANGUAGE_OPTIONS } from "../types";
 import { resolveAnchorUrl } from "../../../lib/linkGuard";
 import { useMenuPosition } from "../../../lib/useMenuPosition";
 import { canonicalEmbedKey, extractArticleFromDocument, findVideoEmbeds, identifyVideoEmbed, MIN_USABLE_TEXT, type ExtractedContent, type VideoEmbed } from "../../../lib/articleExtract";
+import { enrichArticleHtml, resolveVodMarkers } from "../../../lib/siteEnrich";
+import { useAnchoredDropdown } from "../../../lib/useAnchoredDropdown";
 import {
   classifyMedia,
   detectContentKind,
@@ -81,6 +83,14 @@ function resolveImgSrc(raw: string, baseUrl: string | null): string {
   }
   return "";
 }
+
+/**
+ * 懒加载占位图的特征：src 上挂的是 1px 透明小图（IT之家 images/v2/t.png、
+ * 各站的 blank / loading / spacer …），真实地址在 data-* 或 srcset 里。
+ * 只看「src 非空」会把占位图当成真图，图片整张显示不出来（IT之家实测）。
+ */
+const PLACEHOLDER_SRC_RE =
+  /(?:^|\/)(?:t|blank|grey|gray|placeholder|spacer|lazy|lazyload|loading|transparent|pixel|dot)\.(?:gif|png|jpe?g|svg|webp)(?:$|[?#])/i;
 
 /** 从 srcset 里挑一个可用地址（优先最大的候选，取不到时用 src） */
 function pickFromSrcset(srcset: string): string {
@@ -171,9 +181,14 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
     frame.setAttribute("src", abs.toString());
 
     frame.setAttribute("loading", "lazy");
-    // 不给 allow-same-origin：第三方嵌入一旦以应用源加载（相对地址 / blob:），
-    // 拿到同源身份就能操纵整个应用 DOM；播放器在不带同源身份的 sandbox 下照常工作
-    frame.setAttribute("sandbox", "allow-scripts allow-presentation allow-popups");
+    // 不给 allow-same-origin 的话，播放器类嵌入会整块变黑/空白（B 站、网易云外链实测）：
+    // 它们的初始化脚本要访问自己源下的存储，opaque origin 下直接抛错。
+    // 这里给 allow-same-origin 只会把 iframe 恢复成它自己的 https 源（等同普通网站的嵌入方式），
+    // 并不会拿到应用源 —— 应用源隔离由上面的「src 必须是绝对 http(s) 地址」校验保证。
+    frame.setAttribute(
+      "sandbox",
+      "allow-scripts allow-same-origin allow-presentation allow-popups",
+    );
   });
 
   doc.querySelectorAll("img").forEach((img) => {
@@ -182,6 +197,8 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
       img.getAttribute("data-src") ??
       img.getAttribute("data-original") ??
       img.getAttribute("data-lazy-src") ??
+      img.getAttribute("data-lazy") ??
+      img.getAttribute("data-echo") ??
       img.getAttribute("data-original-src");
     // srcset 没有被前面的 data-* 命中时也作为候选（不少站点只给 srcset）
     const fromSrcset = pickFromSrcset(
@@ -190,12 +207,13 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
         img.getAttribute("data-lazy-srcset") ??
         "",
     );
-    // src 缺失或是占位 data URI 时，用懒加载 / srcset 的真实地址回填
-    const candidate =
-      ((lazy && (!current || current.startsWith("data:")) ? lazy : current) ||
-        fromSrcset ||
-        lazy) ??
-      "";
+    // src 缺失、占位 data URI 或已知占位小图（如 IT之家 t.png）时，
+    // 用懒加载 / srcset 的真实地址回填
+    const currentIsPlaceholder =
+      !current || current.startsWith("data:") || PLACEHOLDER_SRC_RE.test(current);
+    const candidate = (
+      currentIsPlaceholder ? lazy || fromSrcset || current : current || fromSrcset || lazy
+    ) ?? "";
     const resolved = resolveImgSrc(candidate, baseUrl);
 
     if (resolved && /^(https?:\/\/|data:|blob:)/i.test(resolved)) {
@@ -239,7 +257,76 @@ function normalizeArticleHtml(html: string, baseUrl: string | null): string {
 
   // 排版：无 src 的 <video>/<audio> 不渲染，避免空白占位
   doc.querySelectorAll("video, audio").forEach((node) => {
+    // 相对 / 协议相对地址要补全成绝对地址：正文注入的是应用页面，相对地址会落到
+    // 应用自身源上必然 404；非 http(s) 的（data:/blob: 伪协议）直接摘掉
+    const base = (attr: string): string => {
+      const raw = node.getAttribute(attr)?.trim() ?? "";
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      if (raw.startsWith("//")) return `https:${raw}`;
+      if (baseUrl) {
+        try {
+          const abs = new URL(raw, baseUrl);
+          if (abs.protocol === "https:" || abs.protocol === "http:") return abs.toString();
+        } catch {
+          // 非法地址按缺失处理
+        }
+      }
+      return "";
+    };
+    const src = base("src");
+    if (src) node.setAttribute("src", src);
+    node.querySelectorAll("source").forEach((source) => {
+      const s = (source.getAttribute("src") ?? "").trim();
+      if (!s) return;
+      if (/^https?:\/\//i.test(s)) return;
+      const abs = s.startsWith("//") ? `https:${s}` : "";
+      if (abs) {
+        source.setAttribute("src", abs);
+      } else if (baseUrl) {
+        try {
+          const u = new URL(s, baseUrl);
+          if (u.protocol === "http:" || u.protocol === "https:") source.setAttribute("src", u.toString());
+        } catch {
+          source.removeAttribute("src");
+        }
+      }
+    });
+    if (node.tagName === "VIDEO") {
+      const poster = node.getAttribute("poster")?.trim() ?? "";
+      if (poster && !/^https?:\/\//i.test(poster)) {
+        if (poster.startsWith("//")) node.setAttribute("poster", `https:${poster}`);
+        else if (baseUrl) {
+          try {
+            const u = new URL(poster, baseUrl);
+            if (u.protocol === "http:" || u.protocol === "https:") node.setAttribute("poster", u.toString());
+          } catch {
+            node.removeAttribute("poster");
+          }
+        }
+      }
+    }
     if (!node.getAttribute("src") && node.querySelector("source") === null) node.remove();
+    // 澎湃等站点的媒体 CDN 按防盗链 Referer 校验，WebView 请求带上应用源会被 403；
+    // 站点自己的 <video> 标签也统一摘掉 Referer（与图片代理的空 Referer 策略一致）。
+    // 注意 Chromium 不支持媒体元素上的 referrerpolicy 属性，真正的兜底是
+    // index.html 里全局的 <meta name="referrer" content="no-referrer">，这里只是双保险。
+    node.setAttribute("referrerpolicy", "no-referrer");
+    // 澎湃的 <video preload="preload">（= auto）会让每篇文章预拉整段十几 MB 的视频，
+    // 和正文图片抢带宽；统一压到 metadata（只取时长与画面尺寸）
+    if (node.tagName === "VIDEO") node.setAttribute("preload", "metadata");
+  });
+
+  // 排版：澎湃等站点用非标准的 w/h（或 data-width/data-height）声明尺寸，
+  // 补成标准的 width/height，让 CSS 能按宽高比预留空间 —— 图片加载时版面不跳
+  doc.querySelectorAll("img").forEach((img) => {
+    if (img.hasAttribute("width") && img.hasAttribute("height")) return;
+    const w = img.getAttribute("w") ?? img.getAttribute("data-width");
+    const h = img.getAttribute("h") ?? img.getAttribute("data-height");
+    if (w && h && /^\d+$/.test(w) && /^\d+$/.test(h) && Number(w) > 1 && Number(h) > 1) {
+      img.setAttribute("width", w);
+      img.setAttribute("height", h);
+    }
   });
 
   return doc.body.innerHTML;
@@ -343,6 +430,60 @@ function MetaChip({ icon, text }: { icon: string; text: string }): JSX.Element {
 }
 
 /**
+ * 源/译语言下拉（自定义下拉：原生 <select> 的弹出列表由系统渲染，跟随 Windows
+ * 深浅色而非应用主题）。菜单用 fixed 定位 + 视口收边，不会被阅读区裁剪。
+ */
+function LangMenuPicker({
+  cap,
+  title,
+  current,
+  options,
+  open,
+  rootRef,
+  onToggle,
+  onPick,
+}: {
+  cap: string;
+  title: string;
+  current: string;
+  options: readonly string[];
+  open: boolean;
+  rootRef: React.RefObject<HTMLSpanElement>;
+  onToggle: () => void;
+  onPick: (lang: string) => void;
+}): JSX.Element {
+  const { menuRef, menuStyle } = useAnchoredDropdown<HTMLDivElement>(open, rootRef);
+  return (
+    <span className="toolbar-dropdown translate-picker" ref={rootRef}>
+      <button type="button" className="translate-picker-btn" onClick={onToggle} title={title}>
+        <span className="article-view-lang-cap">{cap}</span>
+        <span className="translate-picker-current">{current}</span>
+        <span className="material-symbols-rounded">expand_more</span>
+      </button>
+        {open && (
+          <div
+            className="dropdown-menu translate-picker-menu article-lang-menu"
+            ref={menuRef}
+            style={menuStyle}
+          >
+            {options.map((lang) => (
+              <button
+                key={lang}
+                type="button"
+                className={`dropdown-item translate-picker-item ${lang === current ? "selected" : ""}`}
+                onClick={() => onPick(lang)}
+              >
+                <span className="translate-picker-item-name">{lang}</span>
+                {lang === current && <span className="material-symbols-rounded">check</span>}
+              </button>
+            ))}
+          </div>
+        )}
+    </span>
+  );
+}
+
+/**
  * 按内容种类渲染正文：
  * - external：正文是外链文件（Atom content src），给出打开入口而不塞进正文；
  * - empty：没有任何正文，给出提示；
@@ -430,6 +571,13 @@ export function ArticleView({
   const [pickerOpen, setPickerOpen] = useState(false);
   /** 下拉的根容器（按钮 + 菜单）：点它之外的地方才收起 */
   const pickerRootRef = useRef<HTMLDivElement | null>(null);
+  /** 源/译语言下拉当前打开的是哪一个（null = 都收起） */
+  const [langMenu, setLangMenu] = useState<"source" | "target" | null>(null);
+  const sourceLangRef = useRef<HTMLSpanElement | null>(null);
+  const targetLangRef = useRef<HTMLSpanElement | null>(null);
+  // 模型下拉菜单：fixed 定位 + 视口收边（与语言下拉同一机制）
+  const { menuRef: modelMenuRef, menuStyle: modelMenuStyle } =
+    useAnchoredDropdown<HTMLDivElement>(pickerOpen, pickerRootRef);
   const { ref: linkMenuRef, position: linkMenuPosition } = useMenuPosition<HTMLDivElement>(linkMenu);
 
   // 切换文章时重置状态（已抓取过全文的命中缓存，直接显示）
@@ -443,6 +591,7 @@ export function ArticleView({
     setTranslateProgress(null);
     setTranslateError(null);
     setTranslating(false);
+    setLangMenu(null);
   }, [article.id]);
 
   /**
@@ -549,6 +698,11 @@ export function ArticleView({
     });
   }, [article.media, renderedHtml, embeds, article.link]);
 
+  /** 内嵌媒体统一摘掉 Referer：澎湃等站点按 Referer 防盗链，应用源 Referer 会被 403 */
+  const noReferrerMedia = (el: HTMLMediaElement | null): void => {
+    el?.setAttribute("referrerpolicy", "no-referrer");
+  };
+
   const openUrl = (url: string): void => {
     if (onOpenExternal) onOpenExternal(url);
     else void rssService.openExternal(url);
@@ -587,8 +741,9 @@ export function ArticleView({
       frame.setAttribute("allowfullscreen", "true");
       frame.setAttribute(
         "sandbox",
-        // 不给 allow-same-origin，理由同 normalizeArticleHtml 里的正文 iframe
-        "allow-scripts allow-presentation allow-popups",
+        // allow-same-origin 必须有：B 站播放器在 opaque origin 下初始化失败、整块黑屏
+        // （实测）。src 来自平台白名单且已校验 https，同源身份只是恢复它自己的源，碰不到应用。
+        "allow-scripts allow-same-origin allow-presentation allow-popups",
       );
       frame.setAttribute("title", embed.title ?? `${embed.platform ?? "视频"} 播放器`);
       wrap.appendChild(frame);
@@ -639,7 +794,19 @@ export function ArticleView({
     setHasAttemptedFull(true);
     try {
       const html = await rssService.fetchArticleHtml(article.link, proxyArg);
-      const extracted = extractArticleContent(html);
+      // 经 Rust 通道抓取的文本请求（站点 API / 点播信息），供适配器复用
+      const fetchText = (url: string): Promise<string> =>
+        rssService.fetchArticleHtml(url, proxyArg);
+      // 站点适配器注入（机核 gapi 媒体、南周正文约束等；未命中原样返回）
+      const sourceHtml = await enrichArticleHtml(html, article.link, fetchText);
+      let extracted = extractArticleContent(sourceHtml);
+      // 站点播放器组件标记（南方周末 IVideoPlayer 等）：解析直链换成真正的播放器
+      if (extracted.html.includes("data-rss-vod")) {
+        extracted = {
+          ...extracted,
+          html: await resolveVodMarkers(extracted.html, article.link, fetchText),
+        };
+      }
       // 正文文字够多，**或**正文本身就是媒体（博客正文只有一条播放器的情形）。
       // 判据必须用 hasMedia 而不是 embeds：embeds 只含认得出平台的**视频**，
       // 而音频播放器（网易云外链等）是认不出平台的 iframe ——
@@ -708,6 +875,26 @@ export function ArticleView({
       document.removeEventListener("keydown", onKey);
     };
   }, [pickerOpen]);
+
+  // 语言下拉打开时：点外面或按 Esc 收起（与模型下拉同一套 mousedown 写法）
+  useEffect(() => {
+    if (!langMenu) return;
+    const root = langMenu === "source" ? sourceLangRef.current : targetLangRef.current;
+    const onMouseDown = (e: MouseEvent): void => {
+      if (root && !root.contains(e.target as Node)) {
+        setLangMenu(null);
+      }
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setLangMenu(null);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [langMenu]);
 
   /** 选定「哪个网关的哪个条目」：本地先更新（界面立刻反馈），再落盘 */
   const handleSelectTarget = async (
@@ -971,35 +1158,37 @@ export function ArticleView({
           <span className="material-symbols-rounded">share</span>
           分享
         </button>
-        {/* 翻译设置：按网关分组的模型选择（点开是「网关 → 模型」列表，当前项打勾）+ 源/目标语言 */}
+        {/* 翻译控件组：源/译/模型/翻译按钮是一个整体，工具栏放不下时整组换行，
+            不会像散开的 flex 项那样把「源」单独留在上一行行尾 */}
+        <div className="translate-controls">
         {picker && picker.groups.length > 0 && (
           <>
-            <label className="article-view-lang" title="源语言（自动检测 = 由模型判断）">
-              <span className="article-view-lang-cap">源</span>
-              <select
-                value={picker.sourceLang}
-                onChange={(e) => void handleLangChange(e.target.value, picker.targetLang)}
-              >
-                {SOURCE_LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {lang}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="article-view-lang" title="目标语言">
-              <span className="article-view-lang-cap">译</span>
-              <select
-                value={picker.targetLang}
-                onChange={(e) => void handleLangChange(picker.sourceLang, e.target.value)}
-              >
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {lang}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <LangMenuPicker
+              cap="源"
+              title="源语言（自动检测 = 由模型判断）"
+              current={picker.sourceLang}
+              options={SOURCE_LANGUAGE_OPTIONS}
+              open={langMenu === "source"}
+              rootRef={sourceLangRef}
+              onToggle={() => setLangMenu((o) => (o === "source" ? null : "source"))}
+              onPick={(lang) => {
+                void handleLangChange(lang, picker.targetLang);
+                setLangMenu(null);
+              }}
+            />
+            <LangMenuPicker
+              cap="译"
+              title="目标语言"
+              current={picker.targetLang}
+              options={LANGUAGE_OPTIONS}
+              open={langMenu === "target"}
+              rootRef={targetLangRef}
+              onToggle={() => setLangMenu((o) => (o === "target" ? null : "target"))}
+              onPick={(lang) => {
+                void handleLangChange(picker.sourceLang, lang);
+                setLangMenu(null);
+              }}
+            />
             <div className="toolbar-dropdown translate-picker" ref={pickerRootRef}>
               <button
                 type="button"
@@ -1007,13 +1196,20 @@ export function ArticleView({
                 onClick={() => setPickerOpen((o) => !o)}
                 title="选择翻译使用的服务商与模型"
               >
+                {picker.currentLabel && (
+                  <span className="article-view-lang-cap">模型</span>
+                )}
                 <span className="translate-picker-current">
                   {picker.currentLabel || "选择模型"}
                 </span>
                 <span className="material-symbols-rounded">expand_more</span>
               </button>
               {pickerOpen && (
-                <div className="dropdown-menu translate-picker-menu">
+                <div
+                  className="dropdown-menu translate-picker-menu"
+                  ref={modelMenuRef}
+                  style={modelMenuStyle}
+                >
                   {picker.groups.map((group) => (
                     <div className="translate-picker-group" key={group.providerId}>
                       {/* 机器翻译服务没有模型可选，整组就是一条：不再显示「服务名 + 无需模型」
@@ -1080,6 +1276,7 @@ export function ArticleView({
             {translateProgress ? ` ${translateProgress.done}/${translateProgress.total}` : ""}
           </span>
         )}
+        </div>
       </div>
 
       {/* 标签 */}
@@ -1164,34 +1361,27 @@ export function ArticleView({
                 在浏览器中观看
               </button>
             ) : classifyMedia(item.content_type, item.url) === "audio" ? (
-              <audio key={item.url} className="article-inline-audio" src={item.url} controls preload="none" />
+              <audio
+                key={item.url}
+                ref={noReferrerMedia}
+                className="article-inline-audio"
+                src={item.url}
+                controls
+                preload="none"
+              />
             ) : (
-              <video key={item.url} className="article-inline-video" src={item.url} controls preload="metadata" />
+              <video
+                key={item.url}
+                ref={noReferrerMedia}
+                className="article-inline-video"
+                src={item.url}
+                controls
+                preload="metadata"
+              />
             ),
           )}
         </div>
       )}
-
-      {/* 正文另存有摘要时提示：正文可能只是摘要 */}
-      {article.summary &&
-        summaryText > 0 &&
-        article.summary.trim() !== (articleContent ?? "").trim() && (
-          <details className="article-summary-block">
-            <summary>
-              <span className="material-symbols-rounded">notes</span>
-              订阅源附带的摘要（{plainTextLength(article.summary)} 字）
-            </summary>
-            <div
-              className="article-summary-body"
-              dangerouslySetInnerHTML={{
-                __html: normalizeArticleHtml(
-                  renderContent(article.summary, article.content_type),
-                  article.link,
-                ),
-              }}
-            />
-          </details>
-        )}
 
       {/* 正文链接的右键菜单：原生菜单被全局守卫屏蔽，这里给回「复制链接地址」 */}
       {linkMenu && (

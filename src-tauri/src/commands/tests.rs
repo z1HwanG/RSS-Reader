@@ -1318,3 +1318,67 @@ fn parse_version_compares_numerically() {
     assert_eq!(parse_version("v1"), None);
     assert!(parse_version("0.3.10") > parse_version("0.3.9"));
 }
+
+// ===== SPA 壳页判定与正文首图缩略图 =====
+
+/// 机核这类 SPA 站点的壳页：HTML 很大（脚本 + 站点外壳），剥掉脚本后几乎没有可见文字
+#[test]
+fn js_shell_detected_for_spa_page() {
+    let big_script = "x".repeat(40_000);
+    let shell = format!(
+        r#"<html><head><script>{big_script}</script><style>.a{{color:red}}</style></head><body><div id="app"></div></body></html>"#
+    );
+    assert!(
+        looks_like_js_shell(&shell),
+        "大体积、无可见文字的页面应判为 SPA 壳"
+    );
+
+    // script 里的代码不计入可见文字；正文占比达标就不是壳（750 字 / 3 万字节 ≈ 2.4%）
+    let mut article = String::from("<html><body>");
+    for i in 0..30 {
+        article.push_str(&format!("<p>这是第 {i} 段正文内容，用来凑足可见文字量的样本。</p>"));
+    }
+    article.push_str(&format!("<script>{}</script></body></html>", "x".repeat(30_000)));
+    assert!(!looks_like_js_shell(&article), "正文占比正常的大页面不是壳");
+
+    // 小页面本来就不可能是壳（阈值之下不值得重试）
+    assert!(!looks_like_js_shell("<html><body><p>短页面</p></body></html>"));
+}
+
+/// feed 元数据没给缩略图时，从正文 HTML 取第一张 <img> 兜底（IT之家 / 机核 / 南方周末）
+#[test]
+fn thumbnail_falls_back_to_first_content_image() {
+    let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>
+      <item>
+        <title>只有正文带图的文章</title>
+        <description>&lt;p&gt;开头一段&lt;/p&gt;&lt;p&gt;&lt;img src="https://img.example.com/first.png" w="650"&gt;&lt;/p&gt;&lt;p&gt;&lt;img src="https://img.example.com/second.png"&gt;&lt;/p&gt;</description>
+        <link>https://example.com/1</link>
+      </item>
+    </channel></rss>"#;
+    let article = parse_first(xml, "https://example.com/rss");
+    assert_eq!(
+        article.thumbnail.as_deref(),
+        Some("https://img.example.com/first.png"),
+        "应取正文第一张图作为缩略图"
+    );
+}
+
+#[test]
+fn first_content_image_skips_data_uri_and_finds_plain_src() {
+    // data: 内联图跳过（防止 base64 撑大元数据），data-src 不冒充 src，srcset 不干扰
+    let html = r#"<p><img src="data:image/png;base64,AAAA"><img data-src="lazy.png" srcset="a.png 1x, b.png 2x" src="real.png"></p>"#;
+    assert_eq!(first_content_image(html).as_deref(), Some("real.png"));
+
+    // 相对地址原样返回（前端按文章页地址补全）
+    assert_eq!(
+        first_content_image(r#"<img src='/img/cover.jpg' alt=''>"#).as_deref(),
+        Some("/img/cover.jpg")
+    );
+    // 大小写不敏感；无图片时返回 None
+    assert_eq!(
+        first_content_image(r#"<IMG SRC="a.png">"#).as_deref(),
+        Some("a.png")
+    );
+    assert_eq!(first_content_image("<p>没有图片</p>"), None);
+    assert_eq!(first_content_image(""), None);
+}

@@ -189,6 +189,61 @@ fn pick_thumbnail(entry: &feed_rs::model::Entry) -> Option<String> {
     None
 }
 
+/// 标签里某个属性的值（单双引号或不带引号都认；name 的匹配带边界校验，
+/// 避免把 `data-src` 里的 "src" 也当成 src）
+fn tag_attribute_value<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let lower = tag.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut from = 0usize;
+    while let Some(rel) = lower[from..].find(name) {
+        let at = from + rel;
+        let after = at + name.len();
+        let before_ok = at == 0
+            || !matches!(bytes[at - 1], b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b':');
+        let after_ok = lower[after..]
+            .chars()
+            .next()
+            .map(|c| c.is_whitespace() || c == '=')
+            .unwrap_or(false);
+        if before_ok && after_ok {
+            let rest = tag[after..].trim_start();
+            let rest = rest.strip_prefix('=')?.trim_start();
+            let first = rest.chars().next()?;
+            let value = if first == '"' || first == '\'' {
+                let inner = &rest[1..];
+                &inner[..inner.find(first)?]
+            } else {
+                let end = rest
+                    .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                    .unwrap_or(rest.len());
+                &rest[..end]
+            };
+            return Some(value);
+        }
+        from = after;
+    }
+    None
+}
+
+/// 从正文 HTML 里取第一张 `<img>` 的地址（相对地址原样返回，前端按文章页地址补全）。
+/// `data:` URI 跳过：内联 base64 图片进 state.json 会把元数据撑大，而它本来就在正文里。
+pub(crate) fn first_content_image(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut cursor = 0usize;
+    while let Some(rel) = lower[cursor..].find("<img") {
+        let tag_start = cursor + rel;
+        let tag_end = lower[tag_start..].find('>').map(|e| tag_start + e)?;
+        if let Some(value) = tag_attribute_value(&html[tag_start..tag_end], "src") {
+            let value = value.trim();
+            if !value.is_empty() && !value.to_ascii_lowercase().starts_with("data:") {
+                return Some(value.to_string());
+            }
+        }
+        cursor = tag_end + 1;
+    }
+    None
+}
+
 /// 作者：条目作者优先，缺失时退到订阅源作者；多人以「、」连接
 fn pick_author(entry: &feed_rs::model::Entry, feed: &feed_rs::model::Feed) -> Option<String> {
     let names: Vec<String> = if !entry.authors.is_empty() {
@@ -291,7 +346,10 @@ pub(crate) fn build_article(
         .as_ref()
         .filter(|c| c.body.is_none())
         .and_then(|c| c.src.as_ref().map(|l| l.href.clone()));
-    let thumbnail = pick_thumbnail(entry);
+    // 缩略图：feed 元数据没给时退到正文第一张图（IT之家 / 机核 / 南方周末的 feed
+    // 只在 description 的 HTML 里带 <img>，列表缩略图全靠这个兜底）
+    let thumbnail =
+        pick_thumbnail(entry).or_else(|| first_content_image(content.as_deref().unwrap_or("")));
     let media = collect_media(entry, content_src.as_deref(), thumbnail.as_deref());
 
     let published_at = entry
@@ -478,6 +536,82 @@ pub(crate) fn extract_meta_refresh(html: &str, base: &url::Url) -> Option<url::U
     None
 }
 
+/// 剥掉 script / style 块与标签后的可见文本长度（判断 SPA 壳页用）
+fn visible_text_len(html: &str) -> usize {
+    let lower = html.to_ascii_lowercase();
+    let mut text = String::with_capacity(html.len());
+    let mut rest = html;
+    let mut low = lower.as_str();
+    loop {
+        let next = low
+            .find("<script")
+            .into_iter()
+            .chain(low.find("<style"))
+            .min();
+        let Some(at) = next else {
+            text.push_str(rest);
+            break;
+        };
+        let closer = if low[at..].starts_with("<script") {
+            "</script>"
+        } else {
+            "</style>"
+        };
+        text.push_str(&rest[..at]);
+        match low[at..].find(closer) {
+            // 块没有闭合（截断的 HTML）：把剩余部分全部视为脚本内容丢弃
+            Some(end) => {
+                let skip = at + end + closer.len();
+                rest = &rest[skip..];
+                low = &low[skip..];
+            }
+            None => break,
+        }
+    }
+    let mut count = 0usize;
+    let mut in_tag = false;
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag && !c.is_whitespace() => count += 1,
+            _ => {}
+        }
+    }
+    count
+}
+
+/// 页面是否是「正文全靠 JavaScript 渲染」的 SPA 空壳：HTML 很大（站点外壳 + 脚本）
+/// 但可见文字占比极低 —— 壳页里残留的导航 / 页脚文字也有几百字（机核实测 874 字），
+/// 所以判据用「文字 / 字节」比例而不是绝对字数。机核等站点对普通浏览器 UA 只回这种壳，
+/// 识别为爬虫才做服务端渲染 —— 对壳页换爬虫 UA 重试一次就能拿到正文。
+pub(crate) fn looks_like_js_shell(html: &str) -> bool {
+    html.len() >= 30_000 && (visible_text_len(html) as f64) < html.len() as f64 * 0.02
+}
+
+/// 换用爬虫 UA 重抓一次（SPA 壳页兜底）。成功时返回新页面，任何失败都退回原页面。
+async fn fetch_with_crawler_ua(client: &Client, target: &url::Url) -> Option<String> {
+    const CRAWLER_UA: &str =
+        "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)";
+    let response = client
+        .get(target.clone())
+        .header(reqwest::header::USER_AGENT, CRAWLER_UA)
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        log::info!(
+            "fetch_article_html: 爬虫 UA 重试 {} 失败（HTTP {}）",
+            target,
+            response.status().as_u16()
+        );
+        return None;
+    }
+    let body = response.text().await.ok()?;
+    log::info!("fetch_article_html: SPA 壳页，爬虫 UA 重试成功 {}", target);
+    Some(body)
+}
+
 /// 抓取文章原文 HTML（用于获取 RSS 摘要的完整正文）
 #[tauri::command]
 pub async fn fetch_article_html(
@@ -485,10 +619,19 @@ pub async fn fetch_article_html(
     proxy: Option<ProxyConfig>,
     cache: tauri::State<'_, ClientCache>,
 ) -> Result<String, CommandError> {
-    let parsed_url = url::Url::parse(&url).map_err(|_| CommandError::InvalidUrl(url.clone()))?;
+    let client = cached_http_client(&cache, proxy.as_ref())?;
+    fetch_article_html_with(&client, &url).await
+}
+
+/// 抓取文章原文（客户端由调用方按代理配置构建，便于直接测试）：
+/// 跟随 meta refresh 跳转；SPA 空壳页换爬虫 UA 重试
+pub async fn fetch_article_html_with(
+    client: &Client,
+    url: &str,
+) -> Result<String, CommandError> {
+    let parsed_url = url::Url::parse(url).map_err(|_| CommandError::InvalidUrl(url.to_string()))?;
     ensure_public_http_target(&parsed_url)?;
 
-    let client = cached_http_client(&cache, proxy.as_ref())?;
     let mut target = parsed_url;
     let mut body = String::new();
 
@@ -531,6 +674,17 @@ pub async fn fetch_article_html(
                 target = next;
             }
             _ => break,
+        }
+    }
+
+    // SPA 空壳：换爬虫 UA 再抓一次。两个版本谁可见文字多用谁 —— 判定只是「怀疑」，
+    // 有些页面（图集等）文字本来就少，不能盲信爬虫 UA 抓回来的版本
+    if looks_like_js_shell(&body) {
+        if let Some(retried) = fetch_with_crawler_ua(&client, &target).await {
+            if visible_text_len(&retried) > visible_text_len(&body) {
+                log::info!("fetch_article_html: 采用爬虫 UA 版本 {}", target);
+                body = retried;
+            }
         }
     }
 

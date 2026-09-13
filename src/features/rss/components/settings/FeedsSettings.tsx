@@ -14,6 +14,7 @@ import {
   type FeedSortMode,
 } from "../../../../lib/feedOrder";
 import * as rssService from "../../services/rssService";
+import { F2Select } from "../F2Select";
 import {
   DEFAULT_STALE_DAYS,
   STALE_DAY_OPTIONS,
@@ -448,18 +449,14 @@ export function FeedsSettings({
             >
               未更新{staleList.length > 0 ? ` ${staleList.length}` : ""}
             </button>
-            <select
-              className="settings-select feed-hygiene-days"
-              value={staleDays}
-              onChange={(e) => setStaleDays(Number(e.target.value))}
+            <F2Select
+              className="f2-select-sm"
+              value={String(staleDays)}
+              options={STALE_DAY_OPTIONS.map((d) => ({ value: String(d), label: `${d} 天` }))}
+              onChange={(value) => setStaleDays(Number(value))}
               title="「未更新」的天数门槛"
-            >
-              {STALE_DAY_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d} 天
-                </option>
-              ))}
-            </select>
+              ariaLabel="「未更新」的天数门槛"
+            />
           </div>
         )}
         {feeds.length === 0 ? (
@@ -547,20 +544,20 @@ export function FeedsSettings({
                   </div>
                   <div className="feed-edit-field">
                     <label>文章打开方式</label>
-                    <select
-                      className="settings-select"
+                    <F2Select
                       value={editOpenMethod}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditOpenMethod(val);
+                      options={[
+                        { value: "internal", label: "内部阅读" },
+                        { value: "external", label: "外部浏览器" },
+                      ]}
+                      onChange={(value) => {
+                        setEditOpenMethod(value);
                         void onUpdateFeed(feed.id, {
-                          open_method: val === "external" ? "external" : null,
+                          open_method: value === "external" ? "external" : null,
                         });
                       }}
-                    >
-                      <option value="internal">内部阅读</option>
-                      <option value="external">外部浏览器</option>
-                    </select>
+                      ariaLabel="文章打开方式"
+                    />
                   </div>
                 </div>
               );

@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { ProxyPrefs } from "../../../../lib/preferences";
 import * as rssService from "../../services/rssService";
+import { F2Select } from "../F2Select";
 
 /** 规范化代理主机：剥离误填的 scheme 前缀与结尾斜杠（与 Rust 侧 normalize_proxy_host 对齐） */
 function normalizeProxyHost(host: string): string {
@@ -132,18 +133,18 @@ export function NetworkSettings({ proxy, onProxyChange }: NetworkSettingsProps):
           <>
             <div className="settings-field">
               <label htmlFor="proxy-kind">代理类型</label>
-              <select
-                id="proxy-kind"
-                className="settings-select"
+              <F2Select
                 value={proxy.kind}
-                onChange={(e) => {
-                  onProxyChange({ ...proxy, kind: e.target.value as ProxyPrefs["kind"] });
+                options={[
+                  { value: "http", label: "HTTP" },
+                  { value: "socks5", label: "SOCKS5" },
+                ]}
+                onChange={(value) => {
+                  onProxyChange({ ...proxy, kind: value as ProxyPrefs["kind"] });
                   setProxyTestResult(null);
                 }}
-              >
-                <option value="http">HTTP</option>
-                <option value="socks5">SOCKS5</option>
-              </select>
+                ariaLabel="代理类型"
+              />
             </div>
             <div className="settings-field">
               <label htmlFor="proxy-host">代理主机</label>

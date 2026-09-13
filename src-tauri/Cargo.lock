@@ -3354,7 +3354,7 @@ dependencies = [
 
 [[package]]
 name = "rss-reader"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "chrono",
  "feed-rs",

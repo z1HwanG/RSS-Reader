@@ -8,6 +8,47 @@ All notable changes to this project are documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/), versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-09-13
+
+### 新增 / Added
+
+- **订阅源右键删除**：抽屉里右键订阅源即可删除（带确认框，样式与设置里的批量删除一致）。
+  Feeds can now be deleted from the drawer's context menu (with a confirmation dialog).
+- **设置面板自绘下拉**：原生 `<select>` 换成自绘的 F2Select，弹出列表跟随应用深浅色
+  而不是 Windows 系统（暗色应用在浅色系统上不再弹出白色列表）。
+  Native `<select>` replaced by a custom dropdown that follows the app theme instead of the OS.
+- **阅读工具栏翻译控件成组**：源 / 译 / 模型 / 翻译按钮打包换行（不再把「源」单独留在
+  行尾），源 / 译 / 模型标签收进按钮内部，组前加分隔线。
+  Toolbar translate controls now wrap as a group, with 源/译/模型 labels inside the buttons.
+
+### 修复 / Fixed
+
+- **「获取原文」对 SPA 壳页失效**：机核这类只对爬虫 UA 做服务端渲染的站点，检测到壳页后
+  自动换爬虫 UA 重抓。
+  SPA shell pages (JS-rendered bodies) now trigger a crawler-UA retry.
+- **IT之家抓全文后图片不显示**：懒加载占位小图（`t.png` 等）不再盖过 `data-original` 里的真图。
+  ithome images broken after fetching full text: lazy-load placeholders are now detected and
+  replaced by the real `data-*` URLs.
+- **wiki.eryajf.net 获取原文失败**：VuePress 的 `sidebar-open` 状态类被误判为站点外壳、
+  整页正文被清空——去噪加体积护栏（占页面文字大半的容器不再按命名删除）；
+  并为该站把正文约束到 `.content-wrapper`。
+  Extraction failed on wiki.eryajf.net: a `sidebar-open` state class wiped the page; noise
+  removal now skips containers holding most of the page text, and the site adapter scopes
+  extraction to `.content-wrapper`.
+- **阅读页自绘下拉菜单宽度过宽、菜单项变卡片**：工具栏按钮样式泄漏进菜单项
+  （`inline-flex` 让菜单固有宽度翻倍、每项多了底色与描边），已加覆盖恢复。
+  Dropdown menus in the article toolbar inherited toolbar button styles (double width,
+  card-like items); fixed with explicit overrides.
+- **列表缩略图兜底**：订阅源元数据没给图时，取正文第一张 `<img>`（IT之家 / 机核 /
+  南方周末的列表缩略图全靠这个）。
+  List thumbnails fall back to the first `<img>` in the entry body when the feed has none.
+
+### 变更 / Changed
+
+- **移除阅读页文末「订阅源附带的摘要」折叠块**：摘要仍照常入库，仅阅读页不再展示。
+  The collapsible feed-summary block at the end of the article view was removed
+  (summaries are still stored, just no longer shown there).
+
 ## [0.7.0] - 2026-09-12
 
 ### 新增 / Added

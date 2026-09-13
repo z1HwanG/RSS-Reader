@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { Feed, Group } from "../../types";
+import { F2Select } from "../F2Select";
 import {
   sortFeedsByGroupOrder,
   type FeedMovePosition,
@@ -485,17 +486,16 @@ export function OrganizeSettings({
         {/* 置顶 / 置底按钮已移除：拖动本来就能落到任意位置（含跨分组），
             档位式移动只是拖拽的退化形式，留在行里只会让控件变挤 */}
         <div className="feeds-manage-controls">
-          <select
-            className="feeds-manage-group-select"
+          <F2Select
+            className="f2-select-sm"
             value={feed.group_id ?? ""}
-            onChange={(e) => onMoveToGroup(feed.id, e.target.value || null)}
+            options={[
+              { value: "", label: "未分组" },
+              ...groups.map((g) => ({ value: g.id, label: g.name })),
+            ]}
+            onChange={(value) => onMoveToGroup(feed.id, value || null)}
             title="切换分组"
-          >
-            <option value="">未分组</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
-            ))}
-          </select>
+          />
           <button
             className="feeds-manage-remove"
             onClick={() => onRequestDelete([feed.id])}
